@@ -98,13 +98,14 @@ def license_redeem(body: RedeemIn, request: Request):
             if row is None:
                 cur = c.execute("SELECT used_at IS NOT NULL, revoked FROM license_keys WHERE code = %s", (code,))
                 k = cur.fetchone()
+                # error_code 给新版 APK 用；error 保留中文文案，老包靠子串判断仍能工作
                 if k is None:
-                    return {"ok": False, "error": "兑换码不存在"}
+                    return {"ok": False, "error": "兑换码不存在", "error_code": "not_found"}
                 if k[1]:
-                    return {"ok": False, "error": "兑换码已作废"}
+                    return {"ok": False, "error": "兑换码已作废", "error_code": "revoked"}
                 if k[0]:
-                    return {"ok": False, "error": "兑换码已被使用"}
-                return {"ok": False, "error": "兑换失败，请重试"}
+                    return {"ok": False, "error": "兑换码已被使用", "error_code": "used"}
+                return {"ok": False, "error": "兑换失败，请重试", "error_code": "retry"}
 
             key_id, days = row
 
@@ -149,7 +150,7 @@ def license_status(install_id: str, request: Request):
         )
         row = cur.fetchone()
     if row is None:
-        return {"ok": False, "error": "设备未注册"}
+        return {"ok": False, "error": "设备未注册", "error_code": "device_missing"}
     expires = row[0]
     active = expires is not None and expires > now()
     return {

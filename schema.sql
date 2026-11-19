@@ -1,5 +1,5 @@
 -- pcc 服务端数据库结构（PostgreSQL）
--- 执行：psql -U user1 -d pcc -f schema.sql
+-- 执行：psql -h 127.0.0.1 -U user1 -d aa_data -f schema.sql
 
 -- 兑换码
 CREATE TABLE IF NOT EXISTS license_keys (

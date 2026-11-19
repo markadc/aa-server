@@ -11,7 +11,14 @@ from .db import make_pool
 
 def create_app() -> FastAPI:
     cfg = load_config()
-    app = FastAPI(title="pcc server", version="1.0")
+    docs_on = bool(cfg["server"].get("docs_enabled", False))
+    app = FastAPI(
+        title="pcc server",
+        version="1.0",
+        docs_url="/docs" if docs_on else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if docs_on else None,
+    )
     app.add_middleware(
         SessionMiddleware,
         secret_key=cfg["auth"]["secret_key"],
