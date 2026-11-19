@@ -44,6 +44,5 @@ default_days = 365
 [app]
 name = "pcc"
 timezone = "Asia/Shanghai"
-# 客服 QQ（APK 从接口拉取显示，改这里后重启服务即可，不用重新打包）
-# 注意：换成正式对外公布的号码后，在服务器改 config.toml 并重启即可
-kefu_qq = "1326557184"
+# 客服 QQ：就发这个号，APK 的空值兜底也是它，两处保持一致
+kefu_qq = "123456789"

@@ -83,8 +83,10 @@ uv run python scripts/check.py
 **完整码原样**发给 `/license/redeem`（含 `PCC-` 和连字符）——服务端是按
 `license_keys.code` 精确匹配的，去掉分隔符会查不到。
 
-`app-src-code/pcc/scripts/gen_code.py` 生成的 16 位 hex 老式离线码只在服务器
-不可达时作为兜底，两套码不要混发。
+`gen_key.py` 生成的 16 位 hex 离线码（登记在 `scripts/keys_issued.json`）由 APK
+本地校验：服务端明确回「兑换码不存在」或网络不可达时，`PccLicense` 会回落到本地。
+两套码都能用，但只有后台码会写进 `activations` 表便于追溯；新发的码建议用后台码，
+离线码作为存量与断网兜底。
 
 ## 数据备份
 
