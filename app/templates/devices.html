@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}设备 · pcc 管理后台{% endblock %}
+{% block content %}
+<h1>设备</h1>
+
+<form class="inline" method="get" action="/admin/devices">
+  <input name="q" value="{{ q }}" placeholder="搜索 install_id / 机型 / 版本" style="width:300px">
+  <button type="submit">搜索</button>
+</form>
+
+<table>
+  <tr><th>install_id</th><th>android_id</th><th>机型</th><th>系统</th><th>版本</th><th>首次</th><th>最后在线</th><th>授权</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="mono">{{ r[0] }}</td>
+    <td class="mono">{{ (r[1] or '')[:16] }}</td>
+    <td>{{ r[2] }}</td>
+    <td>{{ r[3] }}</td>
+    <td>{{ r[4] }}</td>
+    <td>{{ iso(r[5])[:19] if r[5] else '' }}</td>
+    <td>{{ iso(r[6])[:19] if r[6] else '' }}</td>
+    <td>
+      {% if r[7] and r[7] > now %}<span class="tag t-ok">{{ iso(r[7])[:10] }}</span>
+      {% else %}<span class="tag t-exp">无</span>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="empty">没有设备</td></tr>
+  {% endfor %}
+</table>
+
+<div class="pager">
+  <span>共 {{ total }} 台 · 第 {{ page }}/{{ pages }} 页</span>
+  {% if page > 1 %}<a href="?page={{ page - 1 }}&q={{ q }}">上一页</a>{% endif %}
+  {% if page < pages %}<a href="?page={{ page + 1 }}&q={{ q }}">下一页</a>{% endif %}
+</div>
+{% endblock %}

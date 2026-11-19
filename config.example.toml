@@ -1,0 +1,42 @@
+# ============================================================
+# pcc 服务端配置
+# 切换服务器：只改这个文件，代码不用动。
+# 用法：复制一份为 config.toml，改下面的值即可。
+# ============================================================
+
+[server]
+# 监听地址：0.0.0.0 = 允许外部访问；只本机调试可用 127.0.0.1
+host = "0.0.0.0"
+port = 8800
+# 对外访问地址（后台页面、APK 里填的接口地址都用它）
+# 本地调试：http://127.0.0.1:8800
+# 服务器：  https://你的域名
+public_url = "https://your-domain-or-ip:8800"
+
+[database]
+host = "127.0.0.1"
+port = 5432
+dbname = "your_db"
+user = "your_user"
+password = "your_password"
+
+[auth]
+# 管理后台登录账号
+admin_user = "admin"
+# 后台登录密码的哈希（不要填明文）。生成方式：
+#   cd server && python3 -m app.security hash '你的密码'
+admin_password_hash = "pbkdf2_sha256$200000$4f9fc40c794db4e335de82d9485769d6$486b801689b0ba8cf36304365f8fa873644e984a519fbfdfa8e534345b5461b5"
+# 会话签名密钥，随便改成一串随机字符
+secret_key = "change-me-to-a-random-string"
+
+[license]
+# 服务器不可达时，App 本地缓存授权的宽限天数
+grace_days = 7
+# 生成兑换码时没填天数就用这个
+default_days = 365
+
+[app]
+name = "pcc"
+timezone = "Asia/Shanghai"
+# 客服 QQ（APK 从接口拉取显示，改这里后重启服务即可，不用重新打包）
+kefu_qq = ""

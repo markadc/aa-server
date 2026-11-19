@@ -1,0 +1,14 @@
+[project]
+name = "aa-server"
+version = "0.1.0"
+description = "pcc 授权与设备管理服务端"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "psycopg[binary,pool]>=3.1",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "itsdangerous>=2.1",
+    "tomli>=2.0; python_version < '3.11'",
+]
