@@ -15,7 +15,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=cfg["auth"]["secret_key"],
-        https_only=cfg["server"]["public_url"].startswith("https"),
+        https_only=bool(cfg["server"].get("session_secure", False)),
         same_site="lax",
     )
     app.state.config = cfg

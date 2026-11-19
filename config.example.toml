@@ -12,6 +12,8 @@ port = 8800
 # 本地调试：http://127.0.0.1:8800
 # 服务器：  https://你的域名
 public_url = "https://your-domain-or-ip:8800"
+# 仅当整站跑在 HTTPS 反代后面才设 true；纯 HTTP 部署必须 false，否则登录 cookie 被浏览器丢弃（303 循环）
+session_secure = false
 
 [database]
 host = "127.0.0.1"
