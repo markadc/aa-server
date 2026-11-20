@@ -210,11 +210,26 @@ def users_page(request: Request, page: int = 1, q: str = ""):
 
 @router.post("/users/{user_id}/revoke")
 def users_revoke(request: Request, user_id: int):
+    """作废 = 封账号 + 释放 install_id（设备可以重新注册新号，不会把设备锁死）。"""
     if (r := require_login(request)) is not None:
         return r
     pool = request.app.state.pool
     with pool.connection() as c:
-        c.execute("UPDATE pcc_users SET revoked = true WHERE id = %s", (user_id,))
+        c.execute(
+            "UPDATE pcc_users SET revoked = true, install_id = '' WHERE id = %s",
+            (user_id,),
+        )
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@router.post("/users/{user_id}/delete")
+def users_delete(request: Request, user_id: int):
+    """彻底删除账号行（释放 install_id 与用户名）。"""
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("DELETE FROM pcc_users WHERE id = %s", (user_id,))
     return RedirectResponse("/admin/users", status_code=303)
 
 

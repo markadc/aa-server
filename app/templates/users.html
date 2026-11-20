@@ -24,12 +24,15 @@
       {% if r[7] %}<span class="tag t-revoked">已作废</span>
       {% else %}<span class="tag t-ok">正常</span>{% endif %}
     </td>
-    <td>
+    <td style="white-space:nowrap">
       {% if not r[7] %}
-      <form method="post" action="/admin/users/{{ r[0] }}/revoke" style="margin:0">
-        <button class="danger ghost" type="submit" onclick="return confirm('确定作废该账号？作废后其 token 立即失效')">作废</button>
+      <form method="post" action="/admin/users/{{ r[0] }}/revoke" style="margin:0;display:inline">
+        <button class="danger ghost" type="submit" onclick="return confirm('作废该账号？token 立即失效，同时释放设备占用（该设备可重新注册新号）')">作废</button>
       </form>
       {% endif %}
+      <form method="post" action="/admin/users/{{ r[0] }}/delete" style="margin:0;display:inline">
+        <button class="danger ghost" type="submit" onclick="return confirm('彻底删除该账号？此操作不可恢复')">删除</button>
+      </form>
     </td>
   </tr>
   {% else %}

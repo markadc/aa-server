@@ -58,3 +58,5 @@ name = "pcc"
 timezone = "Asia/Shanghai"
 # 客服 QQ：就发这个号，APK 的空值兜底也是它，两处保持一致
 kefu_qq = "123456789"
+# 公告：APK「我的」页卡片 1 显示，留空则显示「暂无公告」。改这里重启即可，不用重新打包
+notice = ""

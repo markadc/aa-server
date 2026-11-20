@@ -41,6 +41,12 @@ class QuickLoginIn(BaseModel):
     install_id: str = Field(min_length=8, max_length=64)
 
 
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=64)
+    install_id: str = Field(min_length=8, max_length=64)
+
+
 def _upsert_device(c, d: DeviceIn) -> None:
     cur = c.execute(
         """
@@ -67,7 +73,12 @@ def ping(request: Request):
 def app_config(request: Request):
     """APK 启动时拉的应用配置：客服 QQ 等，改 config.toml 即可生效。"""
     cfg = request.app.state.config
-    return {"ok": True, "kefu_qq": cfg["app"].get("kefu_qq", "") or ""}
+    app_cfg = cfg["app"]
+    return {
+        "ok": True,
+        "kefu_qq": app_cfg.get("kefu_qq", "") or "",
+        "notice": app_cfg.get("notice", "") or "",
+    }
 
 
 @router.post("/device/register")
@@ -264,6 +275,56 @@ def quick_login(body: QuickLoginIn, request: Request):
         "ok": True,
         "reused": False,
         "username": created,
+        "password": password,
+        "token": token,
+        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+    }
+
+
+@router.post("/auth/login")
+def login_by_account(body: LoginIn, request: Request):
+    """用上次记住的用户名 + 密码登录（快速登录拆出来的第二块）。"""
+    cfg = request.app.state.config
+    pool = request.app.state.pool
+    username = body.username.strip()
+    password = body.password
+    install_id = body.install_id.strip()
+    grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
+
+    with pool.connection() as c:
+        cur = c.execute(
+            "SELECT id, revoked, password FROM pcc_users WHERE username = %s",
+            (username,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return {"ok": False, "error": "账号不存在", "error_code": "not_found"}
+        user_id, revoked, saved_pwd = row
+        if revoked:
+            return {"ok": False, "error": "账号已被禁用，请联系客服", "error_code": "revoked"}
+        if saved_pwd != password:
+            return {"ok": False, "error": "账号或密码不正确", "error_code": "bad_password"}
+
+        # 让位：同一个 install_id 若被别的账号占着，先释放（以最后登录的账号为准）
+        c.execute(
+            "UPDATE pcc_users SET install_id = '' WHERE install_id = %s AND id <> %s",
+            (install_id, user_id),
+        )
+        cur = c.execute(
+            """
+            UPDATE pcc_users
+               SET token = %s, install_id = %s, last_login_at = now()
+             WHERE id = %s
+            RETURNING token
+            """,
+            (auth.gen_token(), install_id, user_id),
+        )
+        token = cur.fetchone()[0]
+
+    return {
+        "ok": True,
+        "reused": True,
+        "username": username,
         "password": password,
         "token": token,
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),

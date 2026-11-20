@@ -67,11 +67,12 @@ uv run python scripts/check.py
 |---|---|---|
 | GET | `/health` | 进程存活 |
 | GET | `/api/v1/ping` | 连通性 + 服务器时间 |
-| GET | `/api/v1/app/config` | 应用配置，目前下发 `kefu_qq` |
+| GET | `/api/v1/app/config` | 应用配置：`kefu_qq`（客服 QQ）、`notice`（「我的」页公告，空则显示「暂无公告」） |
 | POST | `/api/v1/device/register` | 设备上报 `{install_id, android_id, model, os_version, app_version}` |
 | POST | `/api/v1/license/redeem` | 核销 `{code, install_id, device?}`，返回到期时间 |
 | GET | `/api/v1/license/status?install_id=` | 查询授权状态 |
-| POST | `/api/v1/auth/quick-login` | **快速注册并登录（匿名）**：`{install_id}` → 返回用户名/密码/token/有效期 |
+| POST | `/api/v1/auth/quick-login` | **注册并登录（匿名）**：`{install_id}` → 返回用户名/密码/token/有效期。该设备已有正常账号则复用，没有才新建 |
+| POST | `/api/v1/auth/login` | **登录上次账号（匿名）**：`{username, password, install_id}` → 换新 token |
 | POST | `/api/v1/record/start` | **核心记牌准入（需登录）**：未登录一律 401 |
 
 ### 鉴权分层
@@ -90,6 +91,9 @@ APK 的网络层（`PccNet.request`）统一给每个请求带 `X-User` / `X-Tok
 - 密码 `pwd` + 4 位数字；按机主要求**明文存库**
 - token 是唯一鉴权凭据（`secrets.token_urlsafe(32)`），密码只作为注册结果返回给用户看
 - 一台设备一个账号：服务端按 `install_id` 复用，退出登录只清本地 token、**不新建账号**
+- 两种登录方式分开：**注册并登录**（按设备新建/复用）、**登录上次账号**（本地记住的用户名+密码换 token）
+- 后台「作废」= 封账号 + **释放 `install_id`**（设备能重新注册新号，不会把设备锁死）；
+  「删除」= 彻底删行
 - 限流：同设备 60 秒一次（只统计成功注册，失败可立即重试）+ 每小时 20 次；
   另叠一层来源 IP 维度（10 秒 / 每小时 30 次），因为 `install_id` 是客户端自报的，换一个就能绕过设备限流
 - 登录成功返回 `valid_until_ms`（默认 7 天，`login_grace_days`），APK 缓存它，期间断网也能记牌
