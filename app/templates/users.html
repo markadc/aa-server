@@ -6,16 +6,17 @@
 <p style="color:var(--dim);margin-top:-8px">共 {{ total }} 个。授权绑定在账号维度（换机登录自动带走授权）；密码按机主要求明文存储。</p>
 
 <form class="inline" method="get" action="/admin/users">
-  <input name="q" value="{{ q }}" placeholder="搜索用户名 / install_id" style="width:280px">
+  <input name="q" value="{{ q }}" placeholder="搜索用户名 / 手机号 / install_id" style="width:280px">
   <button type="submit">筛选</button>
 </form>
 
 <table>
-  <tr><th>用户名</th><th>密码</th><th>授权状态</th><th>最后设备</th><th>创建</th><th>最后登录</th><th>最后启动校验</th><th>状态</th><th></th></tr>
+  <tr><th>用户名</th><th>密码</th><th>手机号</th><th>授权状态</th><th>最后设备</th><th>创建</th><th>最后登录</th><th>最后启动校验</th><th>状态</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td class="mono">{{ r[1] }}</td>
     <td class="mono">{{ r[2] }}</td>
+    <td class="mono">{{ r[9] or '—' }}</td>
     <td>
       {% if r[8] and r[8] > now %}<span class="tag t-ok">至 {{ iso(r[8])[:10] }}</span>
       {% elif r[8] %}<span class="tag t-exp">已过期 {{ iso(r[8])[:10] }}</span>
@@ -30,9 +31,14 @@
       {% else %}<span class="tag t-ok">正常</span>{% endif %}
     </td>
     <td style="white-space:nowrap">
+      {% if r[9] %}
+      <form method="post" action="/admin/users/{{ r[0] }}/unbind-phone" style="margin:0;display:inline">
+        <button class="ghost" type="submit" onclick="return confirm('解绑该账号的手机号？')">解绑手机</button>
+      </form>
+      {% endif %}
       {% if not r[7] %}
       <form method="post" action="/admin/users/{{ r[0] }}/revoke" style="margin:0;display:inline">
-        <button class="danger ghost" type="submit" onclick="return confirm('作废该账号？token 立即失效，下次启动校验自动踢出')">作废</button>
+        <button class="danger ghost" type="submit" onclick="return confirm('作废该账号？token 立即失效并释放手机号，下次启动校验自动踢出')">作废</button>
       </form>
       {% endif %}
       <form method="post" action="/admin/users/{{ r[0] }}/delete" style="margin:0;display:inline">
@@ -41,7 +47,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="9" class="empty">还没有用户</td></tr>
+  <tr><td colspan="10" class="empty">还没有用户</td></tr>
   {% endfor %}
 </table>
 

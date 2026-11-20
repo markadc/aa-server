@@ -187,9 +187,9 @@ def users_page(request: Request, page: int = 1, q: str = ""):
     page = max(1, page)
     where, args = [], []
     if q.strip():
-        where.append("(username ILIKE %s OR install_id ILIKE %s)")
+        where.append("(username ILIKE %s OR phone ILIKE %s OR install_id ILIKE %s)")
         like = f"%{q.strip()}%"
-        args += [like, like]
+        args += [like, like, like]
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
     pool = request.app.state.pool
     with pool.connection() as c:
@@ -198,7 +198,7 @@ def users_page(request: Request, page: int = 1, q: str = ""):
         cur = c.execute(
             f"""
             SELECT id, username, password, install_id, created_at, last_login_at,
-                   last_record_at, revoked, license_expires_at
+                   last_record_at, revoked, license_expires_at, phone
               FROM pcc_users {sql_where}
              ORDER BY created_at DESC
              LIMIT %s OFFSET %s
@@ -220,15 +220,26 @@ def users_page(request: Request, page: int = 1, q: str = ""):
     )
 
 
+@router.post("/users/{user_id}/unbind-phone")
+def users_unbind_phone(request: Request, user_id: int):
+    """管理员解绑该账号的手机号（释放给用户重新绑定或改绑）。"""
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("UPDATE pcc_users SET phone = '' WHERE id = %s", (user_id,))
+    return RedirectResponse("/admin/users", status_code=303)
+
+
 @router.post("/users/{user_id}/revoke")
 def users_revoke(request: Request, user_id: int):
-    """作废账号：token 立即失效（下次启动校验被踢出）。"""
+    """作废账号：token 立即失效，同时释放手机号与设备绑定。"""
     if (r := require_login(request)) is not None:
         return r
     pool = request.app.state.pool
     with pool.connection() as c:
         c.execute(
-            "UPDATE pcc_users SET revoked = true, install_id = '' WHERE id = %s",
+            "UPDATE pcc_users SET revoked = true, install_id = '', phone = '' WHERE id = %s",
             (user_id,),
         )
     return RedirectResponse("/admin/users", status_code=303)

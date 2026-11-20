@@ -122,12 +122,12 @@ def reset_rate_limit(install_id: str | None = None) -> None:
 
 
 def find_by_token(request: Request, token: str):
-    """按 token 查用户，返回 (id, username, install_id, revoked, license_expires_at) 或 None。"""
+    """按 token 查用户，返回 (id, username, install_id, revoked, license_expires_at, phone) 或 None。"""
     pool = request.app.state.pool
     with pool.connection() as c:
         cur = c.execute(
             """
-            SELECT id, username, install_id, revoked, license_expires_at
+            SELECT id, username, install_id, revoked, license_expires_at, phone
               FROM pcc_users
              WHERE token = %s
             """,
@@ -150,12 +150,13 @@ def require_user(request: Request) -> dict:
             status_code=401,
             detail={"ok": False, "error": "登录已失效，请重新登录", "error_code": "unauthorized"},
         )
-    user_id, username, install_id, _revoked, license_expires_at = row
+    user_id, username, install_id, _revoked, license_expires_at, phone = row
     return {
         "id": user_id,
         "username": username,
         "install_id": install_id,
         "license_expires_at": license_expires_at,
+        "phone": phone or "",
     }
 
 

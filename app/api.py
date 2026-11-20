@@ -6,6 +6,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
+from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
 from . import auth, settings
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/v1")
 secure = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
 
 _HEX16_RE = re.compile(r"^[0-9A-F]{16}$")
+_PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
 
 
 def now() -> datetime:
@@ -66,6 +68,10 @@ class LoginIn(BaseModel):
     username: str = Field(min_length=1, max_length=32)
     password: str = Field(min_length=1, max_length=64)
     install_id: str = Field(min_length=8, max_length=64)
+
+
+class PhoneIn(BaseModel):
+    phone: str = Field(min_length=1, max_length=32)
 
 
 def _upsert_device(c, d: DeviceIn) -> None:
@@ -132,6 +138,7 @@ def _create_new_user(c, install_id: str, client_ip: str, cfg: dict):
         "username": created,
         "password": password,
         "token": token,
+        "phone": "",
         "license_expires_at": None,
         "license_expires_at_ms": 0,
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
@@ -337,7 +344,7 @@ def quick_login(body: QuickLoginIn, request: Request):
     with pool.connection() as c:
         cur = c.execute(
             """
-            SELECT id, username, password, license_expires_at
+            SELECT id, username, password, license_expires_at, phone
               FROM pcc_users
              WHERE install_id = %s AND revoked = false
              ORDER BY last_login_at DESC
@@ -347,7 +354,7 @@ def quick_login(body: QuickLoginIn, request: Request):
         )
         row = cur.fetchone()
         if row is not None:
-            user_id, username, password, lic_exp = row
+            user_id, username, password, lic_exp, phone = row
             cur = c.execute(
                 "UPDATE pcc_users SET token = %s, last_login_at = now() WHERE id = %s RETURNING token",
                 (auth.gen_token(), user_id),
@@ -359,6 +366,7 @@ def quick_login(body: QuickLoginIn, request: Request):
                 "username": username,
                 "password": password,
                 "token": token,
+                "phone": phone or "",
                 "license_expires_at": iso(lic_exp),
                 "license_expires_at_ms": to_ms(lic_exp),
                 "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
@@ -370,7 +378,7 @@ def quick_login(body: QuickLoginIn, request: Request):
 
 @router.post("/auth/login")
 def login_by_account(body: LoginIn, request: Request):
-    """通用账号 + 密码登录：换新 token（单设备互踢），返回账号最新授权到期时间。"""
+    """通用账号 + 密码登录：换新 token（单设备互踢），返回账号最新授权到期时间与绑定手机号。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     username = body.username.strip()
@@ -385,14 +393,14 @@ def login_by_account(body: LoginIn, request: Request):
 
     with pool.connection() as c:
         cur = c.execute(
-            "SELECT id, revoked, password, license_expires_at FROM pcc_users WHERE username = %s",
+            "SELECT id, revoked, password, license_expires_at, phone FROM pcc_users WHERE username = %s",
             (username,),
         )
         row = cur.fetchone()
         if row is None:
             auth.mark_login_fail(client_ip)
             return {"ok": False, "error": "账号不存在", "error_code": "not_found"}
-        user_id, revoked, saved_pwd, lic_exp = row
+        user_id, revoked, saved_pwd, lic_exp, phone = row
         if revoked:
             return {"ok": False, "error": "账号已被禁用，请联系客服", "error_code": "revoked"}
         if saved_pwd != password:
@@ -416,6 +424,7 @@ def login_by_account(body: LoginIn, request: Request):
         "username": username,
         "password": password,
         "token": token,
+        "phone": phone or "",
         "license_expires_at": iso(lic_exp),
         "license_expires_at_ms": to_ms(lic_exp),
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
@@ -423,24 +432,52 @@ def login_by_account(body: LoginIn, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# 核心记牌准入 / 启动同步（需要登录；未登录或已作废/被顶号一律 401）
+# 核心记牌准入 / 启动同步 / 用户资料（需要登录；未登录或已作废/被顶号一律 401）
 # ---------------------------------------------------------------------------
+@secure.post("/user/phone")
+def bind_user_phone(body: PhoneIn, request: Request, user: dict = Depends(require_user)):
+    """绑定或修改当前账号的手机号（1 账号 ↔ 1 手机号双向唯一，供未来短信登录继承授权）。"""
+    phone = re.sub(r"[\s-]+", "", body.phone.strip())
+    if not _PHONE_RE.match(phone):
+        return {"ok": False, "error": "请输入正确的 11 位手机号", "error_code": "invalid_phone"}
+
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            "SELECT id FROM pcc_users WHERE phone = %s AND id <> %s LIMIT 1",
+            (phone, user["id"]),
+        )
+        if cur.fetchone() is not None:
+            return {"ok": False, "error": "该手机号已被其他账号绑定", "error_code": "phone_taken"}
+        try:
+            c.execute(
+                "UPDATE pcc_users SET phone = %s WHERE id = %s",
+                (phone, user["id"]),
+            )
+        except UniqueViolation:
+            return {"ok": False, "error": "该手机号已被其他账号绑定", "error_code": "phone_taken"}
+
+    return {"ok": True, "username": user["username"], "phone": phone}
+
+
 @secure.post("/record/start")
 def record_start(request: Request, user: dict = Depends(require_user)):
-    """App 启动时校验一次：确认 token 仍有效，并返回账号维度最新授权到期时间。"""
+    """App 启动时校验一次：确认 token 仍有效，并返回账号维度最新授权到期时间与绑定手机号。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
     with pool.connection() as c:
         cur = c.execute(
-            "UPDATE pcc_users SET last_record_at = now() WHERE id = %s RETURNING license_expires_at",
+            "UPDATE pcc_users SET last_record_at = now() WHERE id = %s RETURNING license_expires_at, phone",
             (user["id"],),
         )
         row = cur.fetchone()
         expires = row[0] if row else user["license_expires_at"]
+        phone = (row[1] if row else user.get("phone", "")) or ""
     return {
         "ok": True,
         "username": user["username"],
+        "phone": phone,
         "license": {
             "active": expires is not None and expires > now(),
             "expires_at": iso(expires),

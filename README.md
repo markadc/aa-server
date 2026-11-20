@@ -84,7 +84,8 @@ uv run python scripts/check.py
 | POST | `/api/v1/auth/login` | **账号密码登录（匿名）**：`{username, password, install_id}` → 轮换 token（单设备互踢）并返回账号授权到期时间 |
 | POST | `/api/v1/auth/quick-login` | 兼容老包 v3.1.0 的快速登录（复用该设备最近正常账号，无则新建） |
 | POST | `/api/v1/license/redeem` | 核销 `{code, install_id, device?}`：带 `X-Token` 绑定到当前登录账号（`pcc_users.license_expires_at`）；无 token 时兼容老包写 `devices` |
-| POST | `/api/v1/record/start` | **启动校验（需 `X-Token`）**：校验 token 有效并下发账号最新 `license.expires_at_ms`；未登录/被作废/被顶号一律 401 |
+| POST | `/api/v1/record/start` | **启动校验（需 `X-Token`）**：校验 token 有效并下发账号最新 `license.expires_at_ms` 与 `phone`；未登录/被作废/被顶号一律 401 |
+| POST | `/api/v1/user/phone` | **绑定/修改手机号（需 `X-Token`）**：`{phone}` → 校验 11 位大陆手机号与 1 对 1 唯一约束，写入 `pcc_users.phone` |
 | GET | `/api/v1/license/status?install_id=` | 查询授权状态（带 `X-Token` 查账号，否则兼容查设备） |
 
 ### 账号与授权约定

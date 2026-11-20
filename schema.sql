@@ -41,12 +41,16 @@ CREATE TABLE IF NOT EXISTS pcc_users (
     last_login_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_record_at      TIMESTAMPTZ,
     revoked             BOOLEAN NOT NULL DEFAULT false,
-    license_expires_at  TIMESTAMPTZ
+    license_expires_at  TIMESTAMPTZ,
+    phone               TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ;
+ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
 DROP INDEX IF EXISTS idx_pcc_users_install_uniq;
 CREATE INDEX IF NOT EXISTS idx_pcc_users_install ON pcc_users (install_id);
 CREATE INDEX IF NOT EXISTS idx_pcc_users_created ON pcc_users (created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pcc_users_phone_uniq
+    ON pcc_users (phone) WHERE phone <> '';
 
 -- 激活记录（每核销一次一条，便于追溯）
 CREATE TABLE IF NOT EXISTS activations (
