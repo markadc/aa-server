@@ -28,6 +28,11 @@ aa-server/
 ├── scripts/
 │   ├── check.py          # 只读自检（配置 / 数据库 5 张表 / 接口）
 │   └── import_offline_keys.py  # 存量 16 位离线码幂等导入 license_keys
+├── tests/
+│   ├── fake_db.py        # 内存模拟库 + 零依赖 ASGI 测试客户端
+│   ├── test_unit.py      # 密码哈希 / 限流 / 兑换码归一化 / 离线码解析单测
+│   ├── test_api.py       # /api/v1/* 全链路接口回归测试
+│   └── test_admin.py     # 管理后台登录 / 生码 / 封号 / 手机解绑 / 在线配置测试
 └── deploy/               # systemd unit 与备份脚本（可选）
 ```
 
@@ -66,10 +71,16 @@ uv run python scripts/import_offline_keys.py /path/to/keys_issued.json
 uv run python -m app.security hash '你的密码'
 ```
 
-只读自检：
+只读自检（连线上/本机 PG）：
 
 ```bash
 uv run python scripts/check.py
+```
+
+自动化回归测试（全程使用内存模拟库，不依赖外部数据库，不污染线上数据）：
+
+```bash
+uv run python -m unittest discover -s tests -v
 ```
 
 ## 接口

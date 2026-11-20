@@ -41,7 +41,7 @@ def load_config(path: str | None = None) -> dict:
     if not cfg["auth"]["admin_password_hash"]:
         print(
             "[提示] auth.admin_password_hash 为空，后台无法登录。\n"
-            "       生成命令: cd server && python3 -m app.security hash '你的密码'",
+            "       生成命令: cd aa-server && uv run python -m app.security hash '你的密码'",
             flush=True,
         )
     return cfg
