@@ -318,3 +318,68 @@ def settings_save(
         },
     )
     return RedirectResponse("/admin/settings?saved=1", status_code=303)
+
+
+@router.get("/feedbacks", response_class=HTMLResponse)
+def feedbacks_page(request: Request, page: int = 1, q: str = "", status: str = ""):
+    if (r := require_login(request)) is not None:
+        return r
+    page = max(1, page)
+    where, args = [], []
+    if q.strip():
+        where.append(
+            "(username ILIKE %s OR phone ILIKE %s OR contact ILIKE %s OR content ILIKE %s OR model ILIKE %s)"
+        )
+        like = f"%{q.strip()}%"
+        args += [like, like, like, like, like]
+    if status in ("open", "resolved"):
+        where.append("status = %s")
+        args.append(status)
+    sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(f"SELECT count(*) FROM pcc_feedbacks {sql_where}", args)
+        (total,) = cur.fetchone()
+        cur = c.execute(
+            f"""
+            SELECT id, username, phone, contact, content, app_version, model, os_version, status, created_at
+              FROM pcc_feedbacks {sql_where}
+             ORDER BY created_at DESC
+             LIMIT %s OFFSET %s
+            """,
+            args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+        rows = cur.fetchall()
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    return render(
+        request,
+        "feedbacks.html",
+        rows=rows,
+        page=page,
+        pages=pages,
+        total=total,
+        q=q,
+        status=status,
+        iso=iso,
+    )
+
+
+@router.post("/feedbacks/{feedback_id}/status")
+def feedbacks_set_status(request: Request, feedback_id: int, status: str = Form("resolved")):
+    if (r := require_login(request)) is not None:
+        return r
+    next_status = "resolved" if status == "resolved" else "open"
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("UPDATE pcc_feedbacks SET status = %s WHERE id = %s", (next_status, feedback_id))
+    return RedirectResponse("/admin/feedbacks", status_code=303)
+
+
+@router.post("/feedbacks/{feedback_id}/delete")
+def feedbacks_delete(request: Request, feedback_id: int):
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("DELETE FROM pcc_feedbacks WHERE id = %s", (feedback_id,))
+    return RedirectResponse("/admin/feedbacks", status_code=303)

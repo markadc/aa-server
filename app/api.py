@@ -74,6 +74,15 @@ class PhoneIn(BaseModel):
     phone: str = Field(min_length=1, max_length=32)
 
 
+class FeedbackIn(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+    contact: str = Field(default="", max_length=64)
+    install_id: str = Field(default="", max_length=64)
+    app_version: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=64)
+    os_version: str = Field(default="", max_length=32)
+
+
 def _upsert_device(c, d: DeviceIn) -> None:
     c.execute(
         """
@@ -458,6 +467,53 @@ def bind_user_phone(body: PhoneIn, request: Request, user: dict = Depends(requir
             return {"ok": False, "error": "该手机号已被其他账号绑定", "error_code": "phone_taken"}
 
     return {"ok": True, "username": user["username"], "phone": phone}
+
+
+@secure.post("/feedback")
+def submit_feedback(body: FeedbackIn, request: Request, user: dict = Depends(require_user)):
+    """提交用户反馈（必须登录；自动关联账号、绑定手机号与设备/版本上下文）。"""
+    content = body.content.strip()
+    if len(content) < 2:
+        return {"ok": False, "error": "反馈内容请至少输入 2 个字", "error_code": "content_too_short"}
+    if len(content) > 1000:
+        return {"ok": False, "error": "反馈内容不能超过 1000 字", "error_code": "content_too_long"}
+
+    client_ip = (request.client.host if request.client else "") or ""
+    limit_reason = auth.check_feedback_rate_limit(user["id"], client_ip)
+    if limit_reason is not None:
+        return {"ok": False, "error": limit_reason, "error_code": "rate_limited"}
+
+    contact = body.contact.strip()[:64]
+    install_id = (body.install_id.strip() or user.get("install_id", ""))[:64]
+    app_version = body.app_version.strip()[:64]
+    model = body.model.strip()[:64]
+    os_version = body.os_version.strip()[:32]
+
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            INSERT INTO pcc_feedbacks
+                (user_id, username, phone, install_id, app_version, model, os_version, contact, content)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at
+            """,
+            (
+                user["id"],
+                user["username"],
+                user.get("phone", "") or "",
+                install_id,
+                app_version,
+                model,
+                os_version,
+                contact,
+                content,
+            ),
+        )
+        fid, created_at = cur.fetchone()
+
+    auth.mark_feedback(user["id"], client_ip)
+    return {"ok": True, "id": fid, "created_at": iso(created_at)}
 
 
 @secure.post("/record/start")

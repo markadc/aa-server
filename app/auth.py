@@ -20,6 +20,9 @@ USERNAME_TRIES = 32  # user0000..user9999 只有 1 万个；撞名/耗尽有上�
 HOURLY_WINDOW = 3600
 LOGIN_FAIL_WINDOW = 60
 LOGIN_FAIL_MAX = 30
+FEEDBACK_INTERVAL_SECONDS = 60
+FEEDBACK_USER_HOURLY_MAX = 10
+FEEDBACK_IP_HOURLY_MAX = 20
 
 _lock = threading.Lock()
 _last_success: dict[str, float] = {}  # key -> 上次成功注册时间
@@ -103,6 +106,24 @@ def mark_login_fail(ip: str) -> None:
         fails = [t for t in _login_fails.get(ip, []) if now_t - t < LOGIN_FAIL_WINDOW]
         fails.append(now_t)
         _login_fails[ip] = fails
+
+
+def check_feedback_rate_limit(user_id: int, ip: str = "") -> str | None:
+    """反馈提交防刷限流：同账号 60 秒 1 次且每小时 10 次；同 IP 每小时 20 次。"""
+    reason = _check(f"fb_u:{user_id}", FEEDBACK_INTERVAL_SECONDS, FEEDBACK_USER_HOURLY_MAX)
+    if reason is not None:
+        return reason.replace("注册次数过多", "反馈提交过于频繁")
+    if ip:
+        ip_reason = _check(f"fb_ip:{ip}", 0, FEEDBACK_IP_HOURLY_MAX)
+        if ip_reason is not None:
+            return "反馈提交过于频繁，请稍后再试"
+    return None
+
+
+def mark_feedback(user_id: int, ip: str = "") -> None:
+    _mark(f"fb_u:{user_id}")
+    if ip:
+        _mark(f"fb_ip:{ip}")
 
 
 def reset_rate_limit(install_id: str | None = None) -> None:

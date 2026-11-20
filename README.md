@@ -55,7 +55,7 @@ uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8800
 psql -h 127.0.0.1 -U user1 -d aa_data -f schema.sql
 ```
 
-五张表：`license_keys` / `devices` / `activations` / **`pcc_users`** / **`app_settings`**。
+六张表：`license_keys` / `devices` / `activations` / **`pcc_users`** / **`app_settings`** / **`pcc_feedbacks`**。
 注意用 `pcc_users` 而不是 `users`：库里已存在一个别的系统建的 `users` 表，本项目不碰它。
 
 导入存量离线码（幂等，已存在自动跳过）：
@@ -97,6 +97,7 @@ uv run python -m unittest discover -s tests -v
 | POST | `/api/v1/license/redeem` | 核销 `{code, install_id, device?}`：带 `X-Token` 绑定到当前登录账号（`pcc_users.license_expires_at`）；无 token 时兼容老包写 `devices` |
 | POST | `/api/v1/record/start` | **启动校验（需 `X-Token`）**：校验 token 有效并下发账号最新 `license.expires_at_ms` 与 `phone`；未登录/被作废/被顶号一律 401 |
 | POST | `/api/v1/user/phone` | **绑定/修改手机号（需 `X-Token`）**：`{phone}` → 校验 11 位大陆手机号与 1 对 1 唯一约束，写入 `pcc_users.phone` |
+| POST | `/api/v1/feedback` | **提交用户反馈（需 `X-Token`）**：`{content, contact?, install_id?, app_version?, model?, os_version?}` → 写入 `pcc_feedbacks`（同账号 60s/1次 + 10次/小时限流） |
 | GET | `/api/v1/license/status?install_id=` | 查询授权状态（带 `X-Token` 查账号，否则兼容查设备） |
 
 ### 账号与授权约定
@@ -107,7 +108,7 @@ uv run python -m unittest discover -s tests -v
 - 限流：注册按同设备 60s/1次 + 每小时 20 次 + 同 IP 10s/1次 + 每小时 30 次；登录失败按同 IP 每分钟 30 次防爆破。
 - APK 只在**冷启动 / 登录注册 / 兑换激活码**时与服务端同步并写本地缓存；点「开始记牌」纯读本地，服务器不可达时已激活账号在有效期内仍可正常使用。
 
-管理后台：`/admin/login`、`/admin`、`/admin/keys`、`/admin/users`、`/admin/devices`、`/admin/settings`。
+管理后台：`/admin/login`、`/admin`、`/admin/keys`、`/admin/users`、`/admin/devices`、`/admin/feedbacks`、`/admin/settings`。
 `/docs` 默认关闭（`config.toml` 的 `docs_enabled = false`）。
 
 ## 兑换码

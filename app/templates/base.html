@@ -58,6 +58,7 @@
   <a href="/admin/keys" class="{{ 'on' if request.url.path.startswith('/admin/keys') else '' }}">兑换码</a>
   <a href="/admin/users" class="{{ 'on' if request.url.path.startswith('/admin/users') else '' }}">用户</a>
   <a href="/admin/devices" class="{{ 'on' if request.url.path.startswith('/admin/devices') else '' }}">设备</a>
+  <a href="/admin/feedbacks" class="{{ 'on' if request.url.path.startswith('/admin/feedbacks') else '' }}">反馈</a>
   <a href="/admin/settings" class="{{ 'on' if request.url.path.startswith('/admin/settings') else '' }}">设置</a>
   <span class="spacer"></span>
   <span style="color:var(--dim)">{{ admin_user }}</span>

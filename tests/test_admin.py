@@ -21,7 +21,7 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(r.headers.get("location"), "/admin")
 
     def test_require_login_redirect(self) -> None:
-        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/settings"):
+        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/feedbacks", "/admin/settings"):
             r = self.client.request("GET", path)
             self.assertEqual(r.status_code, 303, f"{path} 未登录应 303 跳转")
             self.assertEqual(r.headers.get("location"), "/admin/login")
@@ -111,6 +111,40 @@ class TestAdminPanel(unittest.TestCase):
         # 4) 用户页与设备页正常渲染
         self.assertEqual(self.client.request("GET", "/admin/users").status_code, 200)
         self.assertEqual(self.client.request("GET", "/admin/devices").status_code, 200)
+
+    def test_feedbacks_list_resolve_reopen_and_delete(self) -> None:
+        u = self.client.request(
+            "POST", "/api/v1/auth/register", json_body={"install_id": "adm-fb-1"}, client_ip="10.2.0.1"
+        ).json()
+        self.client.request(
+            "POST",
+            "/api/v1/feedback",
+            json_body={"content": "希望能增加音效提醒", "contact": "qq12345", "model": "Pixel 9"},
+            headers={"X-Token": u["token"]},
+            client_ip="10.2.0.1",
+        )
+        fid = self.pool.db.pcc_feedbacks[0]["id"]
+
+        self._login_admin()
+        page = self.client.request("GET", "/admin/feedbacks?status=open&q=音效")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("希望能增加音效提醒", page.text)
+        self.assertIn("qq12345", page.text)
+
+        # 标为已处理
+        r1 = self.client.request("POST", f"/admin/feedbacks/{fid}/status", form_body={"status": "resolved"})
+        self.assertEqual(r1.status_code, 303)
+        self.assertEqual(self.pool.db.pcc_feedbacks[0]["status"], "resolved")
+
+        # 重开为待处理
+        r2 = self.client.request("POST", f"/admin/feedbacks/{fid}/status", form_body={"status": "open"})
+        self.assertEqual(r2.status_code, 303)
+        self.assertEqual(self.pool.db.pcc_feedbacks[0]["status"], "open")
+
+        # 删除反馈
+        r3 = self.client.request("POST", f"/admin/feedbacks/{fid}/delete")
+        self.assertEqual(r3.status_code, 303)
+        self.assertEqual(len(self.pool.db.pcc_feedbacks), 0)
 
 
 if __name__ == "__main__":

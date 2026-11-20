@@ -74,3 +74,21 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value       TEXT NOT NULL DEFAULT '',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 用户反馈（仅已登录用户可提交，自动记录账号、绑定手机号与设备版本信息）
+CREATE TABLE IF NOT EXISTS pcc_feedbacks (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT REFERENCES pcc_users (id) ON DELETE SET NULL,
+    username    TEXT NOT NULL DEFAULT '',
+    phone       TEXT NOT NULL DEFAULT '',
+    install_id  TEXT NOT NULL DEFAULT '',
+    app_version TEXT NOT NULL DEFAULT '',
+    model       TEXT NOT NULL DEFAULT '',
+    os_version  TEXT NOT NULL DEFAULT '',
+    contact     TEXT NOT NULL DEFAULT '',
+    content     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_created ON pcc_feedbacks (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_status  ON pcc_feedbacks (status, created_at DESC);

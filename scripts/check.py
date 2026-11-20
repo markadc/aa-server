@@ -27,13 +27,13 @@ def main() -> int:
     )
 
     ok = True
-    tables = ("license_keys", "devices", "activations", "pcc_users", "app_settings")
+    tables = ("license_keys", "devices", "activations", "pcc_users", "app_settings", "pcc_feedbacks")
     with psycopg.connect(db_dsn(cfg), connect_timeout=6) as c, c.cursor() as cur:
         cur.execute(
             "select " + ", ".join(f"to_regclass('{t}')" for t in tables)
         )
         missing = [n for n, t in zip(tables, cur.fetchone()) if t is None]
-        print(f"[数据库] 连接成功，五张表：{'齐全' if not missing else '缺少 ' + ', '.join(missing)}")
+        print(f"[数据库] 连接成功，六张表：{'齐全' if not missing else '缺少 ' + ', '.join(missing)}")
         if missing:
             ok = False
         else:
@@ -49,13 +49,18 @@ def main() -> int:
                 "from pcc_users"
             )
             users, active_users = cur.fetchone()
+            cur.execute(
+                "select count(*), count(*) filter (where status = 'open') from pcc_feedbacks"
+            )
+            fb_total, fb_open = cur.fetchone()
             cur.execute("select key, value from app_settings where key in ('kefu_qq', 'notice')")
             db_settings = dict(cur.fetchall())
             kefu = db_settings.get("kefu_qq", cfg["app"].get("kefu_qq", ""))
             notice = db_settings.get("notice", cfg["app"].get("notice", ""))
             print(
                 f"[数据库] 兑换码 {total} 个（未用 {unused}），"
-                f"用户 {users} 个（有效授权 {active_users}），设备 {devices} 台"
+                f"用户 {users} 个（有效授权 {active_users}），设备 {devices} 台，"
+                f"反馈 {fb_total} 条（待处理 {fb_open}）"
             )
             print(f"[运行配置] kefu_qq={kefu!r}  notice={notice!r}")
 

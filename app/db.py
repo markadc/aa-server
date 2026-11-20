@@ -32,6 +32,24 @@ def ensure_schema(pool: ConnectionPool) -> None:
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS pcc_feedbacks (
+            id          BIGSERIAL PRIMARY KEY,
+            user_id     BIGINT REFERENCES pcc_users (id) ON DELETE SET NULL,
+            username    TEXT NOT NULL DEFAULT '',
+            phone       TEXT NOT NULL DEFAULT '',
+            install_id  TEXT NOT NULL DEFAULT '',
+            app_version TEXT NOT NULL DEFAULT '',
+            model       TEXT NOT NULL DEFAULT '',
+            os_version  TEXT NOT NULL DEFAULT '',
+            contact     TEXT NOT NULL DEFAULT '',
+            content     TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'open',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_created ON pcc_feedbacks (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_status ON pcc_feedbacks (status, created_at DESC)",
     ]
     with pool.connection() as c:
         for sql in stmts:

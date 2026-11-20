@@ -295,6 +295,67 @@ class TestApiEndpoints(unittest.TestCase):
         ).json()
         self.assertEqual(lg["phone"], "13900139000")
 
+    def test_feedback_requires_login_and_records_context_and_rate_limits(self) -> None:
+        # 未登录禁止提交
+        unauth = self.client.request("POST", "/api/v1/feedback", json_body={"content": "悬浮窗位置不错"})
+        self.assertEqual(unauth.status_code, 401)
+
+        u = self.client.request(
+            "POST", "/api/v1/auth/register", json_body={"install_id": "dev-fb-1"}, client_ip="10.0.5.1"
+        ).json()
+        self.client.request(
+            "POST", "/api/v1/user/phone", json_body={"phone": "13700137000"}, headers={"X-Token": u["token"]}
+        )
+
+        # 内容过短被拒绝（不触发限流）
+        short = self.client.request(
+            "POST",
+            "/api/v1/feedback",
+            json_body={"content": " 1 "},
+            headers={"X-Token": u["token"]},
+            client_ip="10.0.5.1",
+        ).json()
+        self.assertFalse(short["ok"])
+        self.assertEqual(short["error_code"], "content_too_short")
+
+        # 正常提交：自动记录账号、已绑手机号、联系方式、机型与版本
+        ok = self.client.request(
+            "POST",
+            "/api/v1/feedback",
+            json_body={
+                "content": "大掼蛋发牌时偶尔漏识别一张",
+                "contact": "wx:poker88",
+                "install_id": "dev-fb-1",
+                "app_version": "pcc_v3.1.2",
+                "model": "Xiaomi 14",
+                "os_version": "15",
+            },
+            headers={"X-Token": u["token"]},
+            client_ip="10.0.5.1",
+        )
+        self.assertEqual(ok.status_code, 200)
+        body = ok.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["id"], 1)
+        self.assertEqual(len(self.pool.db.pcc_feedbacks), 1)
+        saved = self.pool.db.pcc_feedbacks[0]
+        self.assertEqual(saved["username"], u["username"])
+        self.assertEqual(saved["phone"], "13700137000")
+        self.assertEqual(saved["contact"], "wx:poker88")
+        self.assertEqual(saved["model"], "Xiaomi 14")
+        self.assertEqual(saved["status"], "open")
+
+        # 同账号 60 秒内重复提交 -> 限流
+        limited = self.client.request(
+            "POST",
+            "/api/v1/feedback",
+            json_body={"content": "再提交一条"},
+            headers={"X-Token": u["token"]},
+            client_ip="10.0.5.1",
+        ).json()
+        self.assertFalse(limited["ok"])
+        self.assertEqual(limited["error_code"], "rate_limited")
+
 
 if __name__ == "__main__":
     unittest.main()

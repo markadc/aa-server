@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -46,9 +46,11 @@ class FakeDB:
         self.pcc_users: list[dict[str, Any]] = []
         self.activations: list[dict[str, Any]] = []
         self.app_settings: dict[str, dict[str, Any]] = {}
+        self.pcc_feedbacks: list[dict[str, Any]] = []
         self._seq_key = 1
         self._seq_user = 1
         self._seq_act = 1
+        self._seq_fb = 1
 
     def add_key(self, code: str, days: int, note: str = "", revoked: bool = False) -> int:
         kid = self._seq_key
@@ -436,6 +438,70 @@ class FakeConnection:
                 )
             return FakeCursor()
 
+        # ---- pcc_feedbacks ----
+        if norm.startswith("INSERT INTO pcc_feedbacks"):
+            uid, uname, phone, iid, app_ver, model, os_ver, contact, content = params
+            fid = self.db._seq_fb
+            self.db._seq_fb += 1
+            now = _now()
+            self.db.pcc_feedbacks.append(
+                {
+                    "id": fid,
+                    "user_id": uid,
+                    "username": uname,
+                    "phone": phone,
+                    "install_id": iid,
+                    "app_version": app_ver,
+                    "model": model,
+                    "os_version": os_ver,
+                    "contact": contact,
+                    "content": content,
+                    "status": "open",
+                    "created_at": now,
+                }
+            )
+            return FakeCursor([(fid, now)])
+
+        if norm == "UPDATE pcc_feedbacks SET status = %s WHERE id = %s":
+            st, fid = params
+            for fb in self.db.pcc_feedbacks:
+                if fb["id"] == fid:
+                    fb["status"] = st
+            return FakeCursor()
+
+        if norm == "DELETE FROM pcc_feedbacks WHERE id = %s":
+            fid = params[0]
+            self.db.pcc_feedbacks = [fb for fb in self.db.pcc_feedbacks if fb["id"] != fid]
+            return FakeCursor()
+
+        if norm.startswith("SELECT count(*) FROM pcc_feedbacks"):
+            rows = self._filter_feedbacks(norm, params)
+            return FakeCursor([(len(rows),)])
+
+        if norm.startswith("SELECT id, username, phone, contact, content, app_version, model, os_version, status, created_at FROM pcc_feedbacks"):
+            q_params = params[:-2]
+            limit, offset = params[-2], params[-1]
+            rows = self._filter_feedbacks(norm, q_params)
+            rows.sort(key=lambda r: r["created_at"], reverse=True)
+            sliced = rows[offset : offset + limit]
+            return FakeCursor(
+                [
+                    (
+                        r["id"],
+                        r["username"],
+                        r["phone"],
+                        r["contact"],
+                        r["content"],
+                        r["app_version"],
+                        r["model"],
+                        r["os_version"],
+                        r["status"],
+                        r["created_at"],
+                    )
+                    for r in sliced
+                ]
+            )
+
         raise AssertionError(f"FakeConnection 未处理的 SQL: {norm} | params={params}")
 
     def _like_match(self, value: str | None, pattern: str) -> bool:
@@ -479,6 +545,26 @@ class FakeConnection:
             rows = [k for k in rows if k["used_at"] is not None]
         elif re.search(r"\bWHERE\b.*\brevoked\b", norm) and "NOT revoked" not in norm:
             rows = [k for k in rows if k["revoked"]]
+        return rows
+
+    def _filter_feedbacks(self, norm: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        rows = list(self.db.pcc_feedbacks)
+        idx = 0
+        if "username ILIKE %s" in norm:
+            pat = params[idx]
+            idx += 5
+            rows = [
+                r
+                for r in rows
+                if self._like_match(r["username"], pat)
+                or self._like_match(r["phone"], pat)
+                or self._like_match(r["contact"], pat)
+                or self._like_match(r["content"], pat)
+                or self._like_match(r["model"], pat)
+            ]
+        if "status = %s" in norm:
+            st = params[idx]
+            rows = [r for r in rows if r["status"] == st]
         return rows
 
 
@@ -553,7 +639,7 @@ class AsgiClient:
             "scheme": "http",
             "path": raw_path,
             "raw_path": raw_path.encode("utf-8"),
-            "query_string": query.encode("utf-8"),
+            "query_string": quote(query, safe="=&%+-._~").encode("ascii"),
             "headers": req_headers,
             "client": (client_ip, 12345),
             "server": ("testserver", 8800),
