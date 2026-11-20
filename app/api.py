@@ -25,7 +25,7 @@ def now() -> datetime:
 
 
 def iso(dt: datetime | None) -> str | None:
-    return dt.astimezone(timezone.utc).isoformat() if dt else None
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if dt else None
 
 
 def to_ms(dt: datetime | None) -> int:

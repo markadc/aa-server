@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unittest
+from datetime import datetime, timezone
 
 from app import api, auth, security
 from scripts.import_offline_keys import SALT, parse_offline_key
@@ -51,6 +52,11 @@ class TestAuthHelpers(unittest.TestCase):
 
 
 class TestCodeHelpers(unittest.TestCase):
+    def test_iso_format_space_separator(self) -> None:
+        dt = datetime(2026, 11, 20, 9, 17, 32, 123456, tzinfo=timezone.utc)
+        self.assertEqual(api.iso(dt), "2026-11-20 09:17:32")
+        self.assertIsNone(api.iso(None))
+
     def test_gen_code_format_no_ambiguous_chars(self) -> None:
         for _ in range(50):
             c = api.gen_code()
