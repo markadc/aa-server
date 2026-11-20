@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}用户 · pcc 管理后台{% endblock %}
+{% block content %}
+<h1>用户</h1>
+
+<p style="color:var(--dim);margin-top:-8px">共 {{ total }} 个。用户名 <code>user</code>+4 位数字（1 万个名额），密码明文存储（机主要求）。一台设备一个账号，退出登录后再点「快速登录」复用同号。</p>
+
+<form class="inline" method="get" action="/admin/users">
+  <input name="q" value="{{ q }}" placeholder="搜索用户名 / install_id" style="width:280px">
+  <button type="submit">筛选</button>
+</form>
+
+<table>
+  <tr><th>用户名</th><th>密码</th><th>设备 install_id</th><th>创建</th><th>最后登录</th><th>最后记牌</th><th>状态</th><th></th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="mono">{{ r[1] }}</td>
+    <td class="mono">{{ r[2] }}</td>
+    <td class="mono">{{ (r[3] or '')[:16] }}</td>
+    <td class="mono">{{ iso(r[4]) }}</td>
+    <td class="mono">{{ iso(r[5]) }}</td>
+    <td class="mono">{{ iso(r[6]) or '—' }}</td>
+    <td>
+      {% if r[7] %}<span class="tag t-revoked">已作废</span>
+      {% else %}<span class="tag t-ok">正常</span>{% endif %}
+    </td>
+    <td>
+      {% if not r[7] %}
+      <form method="post" action="/admin/users/{{ r[0] }}/revoke" style="margin:0">
+        <button class="danger ghost" type="submit" onclick="return confirm('确定作废该账号？作废后其 token 立即失效')">作废</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="8" class="empty">还没有用户</td></tr>
+  {% endfor %}
+</table>
+
+<div class="pager">
+  {% if page > 1 %}<a href="/admin/users?page={{ page - 1 }}&q={{ q }}">上一页</a>{% endif %}
+  <span>第 {{ page }} / {{ pages }} 页</span>
+  {% if page < pages %}<a href="/admin/users?page={{ page + 1 }}&q={{ q }}">下一页</a>{% endif %}
+</div>
+{% endblock %}

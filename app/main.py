@@ -1,7 +1,8 @@
 """pcc 服务端入口。启动：cd server && python3 -m app.main"""
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import admin, api
@@ -28,7 +29,23 @@ def create_app() -> FastAPI:
     app.state.config = cfg
     app.state.pool = make_pool(cfg)
     app.include_router(api.router)
+    app.include_router(api.secure)
     app.include_router(admin.router)
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request, exc: HTTPException):
+        """API 的错误体直接展开，方便 APK 解析：{ok:false, error, error_code}。"""
+        if isinstance(exc.detail, dict):
+            body = dict(exc.detail)
+            body.setdefault("ok", False)
+        else:
+            body = {"ok": False, "error": str(exc.detail)}
+        headers = getattr(exc, "headers", None)
+        response = JSONResponse(status_code=exc.status_code, content=body)
+        if headers:
+            for k, v in headers.items():
+                response.headers[k] = v
+        return response
 
     @app.get("/health")
     def health():

@@ -176,6 +176,48 @@ def keys_revoke(request: Request, key_id: int):
     return RedirectResponse("/admin/keys", status_code=303)
 
 
+@router.get("/users", response_class=HTMLResponse)
+def users_page(request: Request, page: int = 1, q: str = ""):
+    if (r := require_login(request)) is not None:
+        return r
+    page = max(1, page)
+    where, args = [], []
+    if q.strip():
+        where.append("(username ILIKE %s OR install_id ILIKE %s)")
+        like = f"%{q.strip()}%"
+        args += [like, like]
+    sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(f"SELECT count(*) FROM pcc_users {sql_where}", args)
+        (total,) = cur.fetchone()
+        cur = c.execute(
+            f"""
+            SELECT id, username, password, install_id, created_at, last_login_at,
+                   last_record_at, revoked
+              FROM pcc_users {sql_where}
+             ORDER BY created_at DESC
+             LIMIT %s OFFSET %s
+            """,
+            args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+        rows = cur.fetchall()
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    return render(
+        request, "users.html", rows=rows, page=page, pages=pages, total=total, q=q, iso=iso
+    )
+
+
+@router.post("/users/{user_id}/revoke")
+def users_revoke(request: Request, user_id: int):
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("UPDATE pcc_users SET revoked = true WHERE id = %s", (user_id,))
+    return RedirectResponse("/admin/users", status_code=303)
+
+
 @router.get("/devices", response_class=HTMLResponse)
 def devices_page(request: Request, page: int = 1, q: str = ""):
     if (r := require_login(request)) is not None:

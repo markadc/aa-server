@@ -53,6 +53,7 @@
   <a href="/admin" class="{{ 'on' if request.url.path in ['/admin','/admin/'] else '' }}">概览</a>
   <a href="/admin/keys" class="{{ 'on' if request.url.path.startswith('/admin/keys') else '' }}">兑换码</a>
   <a href="/admin/devices" class="{{ 'on' if request.url.path.startswith('/admin/devices') else '' }}">设备</a>
+  <a href="/admin/users" class="{{ 'on' if request.url.path.startswith('/admin/users') else '' }}">用户</a>
   <span class="spacer"></span>
   <span style="color:var(--dim)">{{ admin_user }}</span>
   <a href="/admin/logout">退出</a>

@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from . import auth
+from .auth import require_user
+
 router = APIRouter(prefix="/api/v1")
+# 需要登录的核心接口（统一靠 router 级依赖校验，未登录一律 401）
+secure = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
 
 
 def now() -> datetime:
@@ -30,6 +35,10 @@ class RedeemIn(BaseModel):
     code: str = Field(min_length=4, max_length=64)
     install_id: str = Field(min_length=8, max_length=64)
     device: DeviceIn | None = None
+
+
+class QuickLoginIn(BaseModel):
+    install_id: str = Field(min_length=8, max_length=64)
 
 
 def _upsert_device(c, d: DeviceIn) -> None:
@@ -159,6 +168,134 @@ def license_status(install_id: str, request: Request):
         "expires_at": iso(expires),
         "expires_at_ms": int(expires.timestamp() * 1000) if expires else 0,
         "grace_days": request.app.state.config["license"]["grace_days"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# 快速登录（匿名，不要求 token）
+# ---------------------------------------------------------------------------
+@router.post("/auth/quick-login")
+def quick_login(body: QuickLoginIn, request: Request):
+    """快速注册并登录。同一设备复用已有账号（退出登录后再点不会变成新号）。
+
+    返回值里的 password 是注册时生成的明文口令，仅供用户查看/找回；
+    App 实际鉴权只用 token。
+    """
+    cfg = request.app.state.config
+    pool = request.app.state.pool
+    install_id = body.install_id.strip()
+
+    auth_cfg = cfg.get("auth", {})
+    interval = int(auth_cfg.get("quick_login_interval_seconds", 60))
+    hourly_max = int(auth_cfg.get("quick_login_hourly_max", 20))
+    ip_interval = int(auth_cfg.get("quick_login_ip_interval_seconds", 10))
+    ip_hourly_max = int(auth_cfg.get("quick_login_ip_hourly_max", 30))
+    grace_days = int(auth_cfg.get("login_grace_days", 7))
+    client_ip = (request.client.host if request.client else "") or ""
+
+    with pool.connection() as c:
+        # 已登录过这个设备：复用账号，只轮换 token
+        cur = c.execute(
+            """
+            UPDATE pcc_users SET token = %s, last_login_at = now()
+             WHERE install_id = %s AND revoked = false
+            RETURNING username, password, token
+            """,
+            (auth.gen_token(), install_id),
+        )
+        row = cur.fetchone()
+        if row is not None:
+            username, password, token = row
+            return {
+                "ok": True,
+                "reused": True,
+                "username": username,
+                "password": password,
+                "token": token,
+                "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+            }
+
+        # 新设备：先过限流（同设备一分钟一次 + 每小时上限，只统计成功注册）
+        # 再叠一层 IP 维度，install_id 是客户端自报的，单靠它挡不住换号刷
+        reason = auth.rate_limit_ip(client_ip, ip_interval, ip_hourly_max) or auth.rate_limit(
+            install_id, interval, hourly_max
+        )
+        if reason is not None:
+            return {"ok": False, "error": reason, "error_code": "rate_limited"}
+
+        # 生成不重名账号：user0000..user9999 共 1 万个，重试有上限
+        password = auth.gen_password()
+        token = auth.gen_token()
+        created = None
+        for _ in range(auth.USERNAME_TRIES):
+            username = auth.gen_username()
+            cur = c.execute(
+                """
+                INSERT INTO pcc_users (username, password, token, install_id)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (username) DO NOTHING
+                RETURNING username
+                """,
+                (username, password, token, install_id),
+            )
+            r = cur.fetchone()
+            if r is not None:
+                created = r[0]
+                break
+
+        if created is None:
+            # 用户名池 1 万个已满（或这轮撞名耗尽），给出明确错误而不是死循环
+            return {
+                "ok": False,
+                "error": "注册名额已满，请稍后再试",
+                "error_code": "pool_exhausted",
+            }
+
+    auth.mark_success(install_id, client_ip)
+    return {
+        "ok": True,
+        "reused": False,
+        "username": created,
+        "password": password,
+        "token": token,
+        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 核心记牌准入（需要登录；未登录一律 401）
+# ---------------------------------------------------------------------------
+@secure.post("/record/start")
+def record_start(request: Request, user: dict = Depends(require_user)):
+    """进入记牌前的服务端校验。App 启动时调一次，结果缓存到本地（login_grace_days）。"""
+    cfg = request.app.state.config
+    pool = request.app.state.pool
+    grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
+    with pool.connection() as c:
+        cur = c.execute(
+            "UPDATE pcc_users SET last_record_at = now() WHERE id = %s RETURNING install_id",
+            (user["id"],),
+        )
+        row = cur.fetchone()
+        install_id = (row[0] if row else "") or user["install_id"]
+        expires = None
+        if install_id:
+            cur = c.execute(
+                "SELECT license_expires_at FROM devices WHERE install_id = %s",
+                (install_id,),
+            )
+            r = cur.fetchone()
+            expires = r[0] if r else None
+    return {
+        "ok": True,
+        "username": user["username"],
+        "license": {
+            "active": expires is not None and expires > now(),
+            "expires_at": iso(expires),
+            "expires_at_ms": int(expires.timestamp() * 1000) if expires else 0,
+        },
+        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+        "server_time": iso(now()),
     }
 
 

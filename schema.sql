@@ -38,3 +38,22 @@ CREATE TABLE IF NOT EXISTS activations (
     expires_at    TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_activations_install ON activations (install_id, activated_at DESC);
+
+-- 用户（快速登录生成：user0000..user9999 共 1 万个，密码按机主要求存明文）
+-- 后续迭代扩容时改 username 生成规则即可，表结构不用动
+CREATE TABLE IF NOT EXISTS pcc_users (
+    id              BIGSERIAL PRIMARY KEY,
+    username        TEXT NOT NULL UNIQUE,
+    password        TEXT NOT NULL,
+    token           TEXT NOT NULL UNIQUE,
+    install_id      TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_login_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_record_at  TIMESTAMPTZ,
+    revoked         BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_pcc_users_install ON pcc_users (install_id);
+-- 一台设备一个账号（退出登录后再点快速登录 = 复用同号，不新建）
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pcc_users_install_uniq
+    ON pcc_users (install_id) WHERE install_id <> '';
+CREATE INDEX IF NOT EXISTS idx_pcc_users_created ON pcc_users (created_at DESC);

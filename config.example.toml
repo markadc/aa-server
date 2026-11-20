@@ -35,6 +35,18 @@ admin_password_hash = "pbkdf2_sha256$200000$4f9fc40c794db4e335de82d9485769d6$486
 # 会话签名密钥，随便改成一串随机字符
 secret_key = "e338e9e3ba7ab89e266a46eb711890e137d4c6404a6d10e05d0f5f8dcc363777"
 
+# --- 快速登录（APK「我的」页一键注册登录）---
+# 同一设备两次成功注册的最小间隔（秒）
+quick_login_interval_seconds = 60
+# 同一设备每小时最多成功注册次数
+quick_login_hourly_max = 20
+# 同一来源 IP 两次成功注册的最小间隔（秒）与每小时上限
+# install_id 是客户端自报的，换一个就能绕过设备限流，这层是兑底
+quick_login_ip_interval_seconds = 10
+quick_login_ip_hourly_max = 30
+# 登录校验结果的本地宽限天数：期间断网/服务器不可达仍可记牌
+login_grace_days = 7
+
 [license]
 # 服务器不可达时，App 本地缓存授权的宽限天数
 grace_days = 7

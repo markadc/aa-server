@@ -45,6 +45,10 @@ uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8800
 psql -h 127.0.0.1 -U user1 -d aa_data -f schema.sql
 ```
 
+表：`license_keys` / `devices` / `activations` / **`pcc_users`**。
+注意用 `pcc_users` 而不是 `users`：库里已存在一个别的系统建的 `users` 表（结构 `id/name/pwd/ctime/utime`），
+本项目不碰它。
+
 后台账号在 `config.toml` 的 `[auth]`；改口令哈希：
 
 ```bash
@@ -67,13 +71,35 @@ uv run python scripts/check.py
 | POST | `/api/v1/device/register` | 设备上报 `{install_id, android_id, model, os_version, app_version}` |
 | POST | `/api/v1/license/redeem` | 核销 `{code, install_id, device?}`，返回到期时间 |
 | GET | `/api/v1/license/status?install_id=` | 查询授权状态 |
+| POST | `/api/v1/auth/quick-login` | **快速注册并登录（匿名）**：`{install_id}` → 返回用户名/密码/token/有效期 |
+| POST | `/api/v1/record/start` | **核心记牌准入（需登录）**：未登录一律 401 |
+
+### 鉴权分层
+
+| 类型 | 接口 | 是否校验 token |
+|---|---|---|
+| 匿名辅助 | `health`、`ping`、`app/config`、`device/register`、`license/redeem`、`license/status`、`auth/quick-login`、`/admin/*` | ❌ 否 |
+| 核心功能 | `record/start`（以及今后面向记牌的接口） | ✅ 是，未登录 401 |
+
+APK 的网络层（`PccNet.request`）统一给每个请求带 `X-User` / `X-Token`，不需要每个接口单独写；
+服务端只对核心接口校验。客服 QQ、授权核销这类辅助请求未登录也能用，否则激活弹窗里的客服 QQ 就取不到。
+
+### 快速登录约定
+
+- 用户名 `user` + 4 位数字（`user0000`~`user9999`，共 1 万个名额，后续迭代再扩容）
+- 密码 `pwd` + 4 位数字；按机主要求**明文存库**
+- token 是唯一鉴权凭据（`secrets.token_urlsafe(32)`），密码只作为注册结果返回给用户看
+- 一台设备一个账号：服务端按 `install_id` 复用，退出登录只清本地 token、**不新建账号**
+- 限流：同设备 60 秒一次（只统计成功注册，失败可立即重试）+ 每小时 20 次；
+  另叠一层来源 IP 维度（10 秒 / 每小时 30 次），因为 `install_id` 是客户端自报的，换一个就能绕过设备限流
+- 登录成功返回 `valid_until_ms`（默认 7 天，`login_grace_days`），APK 缓存它，期间断网也能记牌
 
 核销是原子的：`UPDATE ... WHERE used_at IS NULL AND revoked = false RETURNING`
 保证同一个码并发提交只会成功一次。失败响应除中文 `error` 外还带
 `error_code`（`not_found` / `revoked` / `used` / `retry` / `device_missing`），
 新版 APK 用机器码判断，老包靠中文文案仍能工作。
 
-管理后台：`/admin/login`、`/admin`、`/admin/keys`、`/admin/devices`。
+管理后台：`/admin/login`、`/admin`、`/admin/keys`、`/admin/devices`、`/admin/users`。
 `/docs` 默认关闭（`config.toml` 的 `docs_enabled = false`），本地调试要开改成
 `true` 并重启。
 
