@@ -1,18 +1,21 @@
 """给 APK 调的接口。路径统一 /api/v1/...，JSON in / JSON out。"""
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from . import auth
+from . import auth, settings
 from .auth import require_user
 
 router = APIRouter(prefix="/api/v1")
 # 需要登录的核心接口（统一靠 router 级依赖校验，未登录一律 401）
 secure = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
+
+_HEX16_RE = re.compile(r"^[0-9A-F]{16}$")
 
 
 def now() -> datetime:
@@ -21,6 +24,24 @@ def now() -> datetime:
 
 def iso(dt: datetime | None) -> str | None:
     return dt.astimezone(timezone.utc).isoformat() if dt else None
+
+
+def to_ms(dt: datetime | None) -> int:
+    return int(dt.timestamp() * 1000) if dt else 0
+
+
+def _code_candidates(raw_code: str) -> list[str]:
+    """生成候选兑换码列表：原始去空白大写 + 若为 16 位 hex 离线码则附带标准 PCC-XXXX-... 形态。"""
+    raw = raw_code.strip().upper()
+    out = [raw]
+    cleaned = raw.replace("-", "").replace(" ", "")
+    if cleaned.startswith("PCC"):
+        cleaned = cleaned[3:]
+    if _HEX16_RE.match(cleaned):
+        pretty = f"PCC-{cleaned[0:4]}-{cleaned[4:8]}-{cleaned[8:12]}-{cleaned[12:16]}"
+        if pretty not in out:
+            out.append(pretty)
+    return out
 
 
 class DeviceIn(BaseModel):
@@ -48,19 +69,73 @@ class LoginIn(BaseModel):
 
 
 def _upsert_device(c, d: DeviceIn) -> None:
-    cur = c.execute(
+    c.execute(
         """
         INSERT INTO devices (install_id, android_id, model, os_version, app_version)
         VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (install_id) DO UPDATE SET
-            android_id = EXCLUDED.android_id,
-            model = EXCLUDED.model,
-            os_version = EXCLUDED.os_version,
-            app_version = EXCLUDED.app_version,
+            android_id = CASE WHEN EXCLUDED.android_id <> '' THEN EXCLUDED.android_id ELSE devices.android_id END,
+            model = CASE WHEN EXCLUDED.model <> '' THEN EXCLUDED.model ELSE devices.model END,
+            os_version = CASE WHEN EXCLUDED.os_version <> '' THEN EXCLUDED.os_version ELSE devices.os_version END,
+            app_version = CASE WHEN EXCLUDED.app_version <> '' THEN EXCLUDED.app_version ELSE devices.app_version END,
             last_seen = now()
         """,
         (d.install_id, d.android_id, d.model, d.os_version, d.app_version),
     )
+
+
+def _create_new_user(c, install_id: str, client_ip: str, cfg: dict):
+    """限流并创建一个全新账号。返回 (ok_dict_or_err_dict, succeeded)。"""
+    auth_cfg = cfg.get("auth", {})
+    interval = int(auth_cfg.get("quick_login_interval_seconds", 60))
+    hourly_max = int(auth_cfg.get("quick_login_hourly_max", 20))
+    ip_interval = int(auth_cfg.get("quick_login_ip_interval_seconds", 10))
+    ip_hourly_max = int(auth_cfg.get("quick_login_ip_hourly_max", 30))
+    grace_days = int(auth_cfg.get("login_grace_days", 7))
+
+    reason = auth.rate_limit_ip(client_ip, ip_interval, ip_hourly_max) or auth.rate_limit(
+        install_id, interval, hourly_max
+    )
+    if reason is not None:
+        return {"ok": False, "error": reason, "error_code": "rate_limited"}, False
+
+    password = auth.gen_password()
+    token = auth.gen_token()
+    created = None
+    for _ in range(auth.USERNAME_TRIES):
+        username = auth.gen_username()
+        cur = c.execute(
+            """
+            INSERT INTO pcc_users (username, password, token, install_id)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (username) DO NOTHING
+            RETURNING username
+            """,
+            (username, password, token, install_id),
+        )
+        r = cur.fetchone()
+        if r is not None:
+            created = r[0]
+            break
+
+    if created is None:
+        return {
+            "ok": False,
+            "error": "注册名额已满，请稍后再试",
+            "error_code": "pool_exhausted",
+        }, False
+
+    auth.mark_success(install_id, client_ip)
+    return {
+        "ok": True,
+        "reused": False,
+        "username": created,
+        "password": password,
+        "token": token,
+        "license_expires_at": None,
+        "license_expires_at_ms": 0,
+        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+    }, True
 
 
 @router.get("/ping")
@@ -71,13 +146,14 @@ def ping(request: Request):
 
 @router.get("/app/config")
 def app_config(request: Request):
-    """APK 启动时拉的应用配置：客服 QQ 等，改 config.toml 即可生效。"""
+    """APK 启动时拉的应用配置：客服 QQ 与公告，后台在线修改即时生效。"""
     cfg = request.app.state.config
-    app_cfg = cfg["app"]
+    pool = request.app.state.pool
+    vals = settings.get_app_settings(pool, cfg)
     return {
         "ok": True,
-        "kefu_qq": app_cfg.get("kefu_qq", "") or "",
-        "notice": app_cfg.get("notice", "") or "",
+        "kefu_qq": vals["kefu_qq"],
+        "notice": vals["notice"],
     }
 
 
@@ -94,9 +170,17 @@ def device_register(body: DeviceIn, request: Request):
 
 @router.post("/license/redeem")
 def license_redeem(body: RedeemIn, request: Request):
+    """核销兑换码。
+
+    - 带 X-Token（新版 APK）：绑定到当前登录账号（pcc_users.license_expires_at），记录 activations.user_id/username。
+    - 不带 X-Token（兼容老包 v3.0.1）：沿用旧逻辑写入 devices.license_expires_at。
+    """
+    user = auth.optional_user(request)
     pool = request.app.state.pool
     cfg = request.app.state.config
-    code = body.code.strip().upper()
+    candidates = _code_candidates(body.code)
+    used_by = user["username"] if user is not None else body.install_id
+
     with pool.connection() as c:
         if body.device:
             _upsert_device(c, body.device)
@@ -104,21 +188,30 @@ def license_redeem(body: RedeemIn, request: Request):
             _upsert_device(c, DeviceIn(install_id=body.install_id))
 
         with c.transaction():
-            # 原子核销：只有未使用且未作废的码能更新成功，并发下天然安全
-            cur = c.execute(
-                """
-                UPDATE license_keys
-                   SET used_at = now(), used_by = %s
-                 WHERE code = %s AND used_at IS NULL AND revoked = false
-                RETURNING id, days
-                """,
-                (body.install_id, code),
-            )
-            row = cur.fetchone()
+            # 原子核销：先精确匹配原始码，再尝试 16 位 hex 离线码标准形态
+            row = None
+            matched_code = candidates[0]
+            for cand in candidates:
+                cur = c.execute(
+                    """
+                    UPDATE license_keys
+                       SET used_at = now(), used_by = %s
+                     WHERE code = %s AND used_at IS NULL AND revoked = false
+                    RETURNING id, days, code
+                    """,
+                    (used_by, cand),
+                )
+                row = cur.fetchone()
+                if row is not None:
+                    matched_code = row[2]
+                    break
+
             if row is None:
-                cur = c.execute("SELECT used_at IS NOT NULL, revoked FROM license_keys WHERE code = %s", (code,))
+                cur = c.execute(
+                    "SELECT used_at IS NOT NULL, revoked FROM license_keys WHERE code = ANY(%s) LIMIT 1",
+                    (candidates,),
+                )
                 k = cur.fetchone()
-                # error_code 给新版 APK 用；error 保留中文文案，老包靠子串判断仍能工作
                 if k is None:
                     return {"ok": False, "error": "兑换码不存在", "error_code": "not_found"}
                 if k[1]:
@@ -127,34 +220,55 @@ def license_redeem(body: RedeemIn, request: Request):
                     return {"ok": False, "error": "兑换码已被使用", "error_code": "used"}
                 return {"ok": False, "error": "兑换失败，请重试", "error_code": "retry"}
 
-            key_id, days = row
+            key_id, days, matched_code = row
 
-            # 续期：在现有到期时间和当前时间两者较晚的基础上加天数
-            cur = c.execute(
-                """
-                UPDATE devices
-                   SET license_expires_at = GREATEST(COALESCE(license_expires_at, now()), now()) + make_interval(days => %s),
-                       last_seen = now()
-                 WHERE install_id = %s
-                RETURNING license_expires_at
-                """,
-                (days, body.install_id),
-            )
-            expires = cur.fetchone()[0]
-
-            cur = c.execute(
-                """
-                INSERT INTO activations (install_id, key_id, code, expires_at)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (body.install_id, key_id, code, expires),
-            )
+            if user is not None:
+                # 新版账号维度续期：在现有到期时间和当前时间较晚者基础上加天数
+                cur = c.execute(
+                    """
+                    UPDATE pcc_users
+                       SET license_expires_at = GREATEST(COALESCE(license_expires_at, now()), now()) + make_interval(days => %s),
+                           install_id = %s
+                     WHERE id = %s
+                    RETURNING license_expires_at
+                    """,
+                    (days, body.install_id, user["id"]),
+                )
+                expires = cur.fetchone()[0]
+                c.execute(
+                    """
+                    INSERT INTO activations (install_id, user_id, username, key_id, code, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (body.install_id, user["id"], user["username"], key_id, matched_code, expires),
+                )
+            else:
+                # 兼容老包设备维度续期
+                cur = c.execute(
+                    """
+                    UPDATE devices
+                       SET license_expires_at = GREATEST(COALESCE(license_expires_at, now()), now()) + make_interval(days => %s),
+                           last_seen = now()
+                     WHERE install_id = %s
+                    RETURNING license_expires_at
+                    """,
+                    (days, body.install_id),
+                )
+                expires = cur.fetchone()[0]
+                c.execute(
+                    """
+                    INSERT INTO activations (install_id, key_id, code, expires_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (body.install_id, key_id, matched_code, expires),
+                )
 
     return {
         "ok": True,
         "days": days,
+        "username": user["username"] if user is not None else "",
         "expires_at": iso(expires),
-        "expires_at_ms": int(expires.timestamp() * 1000),
+        "expires_at_ms": to_ms(expires),
         "grace_days": cfg["license"]["grace_days"],
         "server_time": iso(now()),
     }
@@ -162,6 +276,19 @@ def license_redeem(body: RedeemIn, request: Request):
 
 @router.get("/license/status")
 def license_status(install_id: str, request: Request):
+    """查询授权状态：带 X-Token 查账号授权，否则兼容查设备授权。"""
+    user = auth.optional_user(request)
+    if user is not None:
+        expires = user["license_expires_at"]
+        return {
+            "ok": True,
+            "username": user["username"],
+            "active": expires is not None and expires > now(),
+            "expires_at": iso(expires),
+            "expires_at_ms": to_ms(expires),
+            "grace_days": request.app.state.config["license"]["grace_days"],
+        }
+
     pool = request.app.state.pool
     with pool.connection() as c:
         cur = c.execute(
@@ -177,49 +304,50 @@ def license_status(install_id: str, request: Request):
         "ok": True,
         "active": active,
         "expires_at": iso(expires),
-        "expires_at_ms": int(expires.timestamp() * 1000) if expires else 0,
+        "expires_at_ms": to_ms(expires),
         "grace_days": request.app.state.config["license"]["grace_days"],
     }
 
 
 # ---------------------------------------------------------------------------
-# 快速登录（匿名，不要求 token）
+# 账号注册 / 登录（匿名，不要求 token）
 # ---------------------------------------------------------------------------
-@router.post("/auth/quick-login")
-def quick_login(body: QuickLoginIn, request: Request):
-    """快速注册并登录。同一设备复用已有账号（退出登录后再点不会变成新号）。
-
-    返回值里的 password 是注册时生成的明文口令，仅供用户查看/找回；
-    App 实际鉴权只用 token。
-    """
+@router.post("/auth/register")
+def register_account(body: QuickLoginIn, request: Request):
+    """注册新账号并登录（每次都新建，不复用旧账号；受设备 + IP 限流保护）。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     install_id = body.install_id.strip()
-
-    auth_cfg = cfg.get("auth", {})
-    interval = int(auth_cfg.get("quick_login_interval_seconds", 60))
-    hourly_max = int(auth_cfg.get("quick_login_hourly_max", 20))
-    ip_interval = int(auth_cfg.get("quick_login_ip_interval_seconds", 10))
-    ip_hourly_max = int(auth_cfg.get("quick_login_ip_hourly_max", 30))
-    grace_days = int(auth_cfg.get("login_grace_days", 7))
     client_ip = (request.client.host if request.client else "") or ""
 
     with pool.connection() as c:
-        # 先看这个设备有没有账号（不管 revoked），避免 INSERT 撞 install_id 唯一索引
+        res, _ok = _create_new_user(c, install_id, client_ip, cfg)
+    return res
+
+
+@router.post("/auth/quick-login")
+def quick_login(body: QuickLoginIn, request: Request):
+    """兼容老包 v3.1.0 的快速登录入口：优先复用该设备最近一个未作废账号，没有才新建。"""
+    cfg = request.app.state.config
+    pool = request.app.state.pool
+    install_id = body.install_id.strip()
+    grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
+    client_ip = (request.client.host if request.client else "") or ""
+
+    with pool.connection() as c:
         cur = c.execute(
-            "SELECT id, username, password, revoked FROM pcc_users WHERE install_id = %s",
+            """
+            SELECT id, username, password, license_expires_at
+              FROM pcc_users
+             WHERE install_id = %s AND revoked = false
+             ORDER BY last_login_at DESC
+             LIMIT 1
+            """,
             (install_id,),
         )
         row = cur.fetchone()
         if row is not None:
-            user_id, username, password, revoked = row
-            if revoked:
-                return {
-                    "ok": False,
-                    "error": "账号已被禁用，请联系客服",
-                    "error_code": "revoked",
-                }
-            # 复用账号，只轮换 token（退出登录后再点不会变成新号）
+            user_id, username, password, lic_exp = row
             cur = c.execute(
                 "UPDATE pcc_users SET token = %s, last_login_at = now() WHERE id = %s RETURNING token",
                 (auth.gen_token(), user_id),
@@ -231,85 +359,46 @@ def quick_login(body: QuickLoginIn, request: Request):
                 "username": username,
                 "password": password,
                 "token": token,
+                "license_expires_at": iso(lic_exp),
+                "license_expires_at_ms": to_ms(lic_exp),
                 "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
             }
 
-        # 新设备：先过限流（同设备一分钟一次 + 每小时上限，只统计成功注册）
-        # 再叠一层 IP 维度，install_id 是客户端自报的，单靠它挡不住换号刷
-        reason = auth.rate_limit_ip(client_ip, ip_interval, ip_hourly_max) or auth.rate_limit(
-            install_id, interval, hourly_max
-        )
-        if reason is not None:
-            return {"ok": False, "error": reason, "error_code": "rate_limited"}
-
-        # 生成不重名账号：user0000..user9999 共 1 万个，重试有上限
-        password = auth.gen_password()
-        token = auth.gen_token()
-        created = None
-        for _ in range(auth.USERNAME_TRIES):
-            username = auth.gen_username()
-            cur = c.execute(
-                """
-                INSERT INTO pcc_users (username, password, token, install_id)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (username) DO NOTHING
-                RETURNING username
-                """,
-                (username, password, token, install_id),
-            )
-            r = cur.fetchone()
-            if r is not None:
-                created = r[0]
-                break
-
-        if created is None:
-            # 用户名池 1 万个已满（或这轮撞名耗尽），给出明确错误而不是死循环
-            return {
-                "ok": False,
-                "error": "注册名额已满，请稍后再试",
-                "error_code": "pool_exhausted",
-            }
-
-    auth.mark_success(install_id, client_ip)
-    return {
-        "ok": True,
-        "reused": False,
-        "username": created,
-        "password": password,
-        "token": token,
-        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
-    }
+        res, _ok = _create_new_user(c, install_id, client_ip, cfg)
+    return res
 
 
 @router.post("/auth/login")
 def login_by_account(body: LoginIn, request: Request):
-    """用上次记住的用户名 + 密码登录（快速登录拆出来的第二块）。"""
+    """通用账号 + 密码登录：换新 token（单设备互踢），返回账号最新授权到期时间。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     username = body.username.strip()
-    password = body.password
+    password = body.password.strip()
     install_id = body.install_id.strip()
     grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
+    client_ip = (request.client.host if request.client else "") or ""
+
+    limit_reason = auth.check_login_rate_limit(client_ip)
+    if limit_reason is not None:
+        return {"ok": False, "error": limit_reason, "error_code": "rate_limited"}
 
     with pool.connection() as c:
         cur = c.execute(
-            "SELECT id, revoked, password FROM pcc_users WHERE username = %s",
+            "SELECT id, revoked, password, license_expires_at FROM pcc_users WHERE username = %s",
             (username,),
         )
         row = cur.fetchone()
         if row is None:
+            auth.mark_login_fail(client_ip)
             return {"ok": False, "error": "账号不存在", "error_code": "not_found"}
-        user_id, revoked, saved_pwd = row
+        user_id, revoked, saved_pwd, lic_exp = row
         if revoked:
             return {"ok": False, "error": "账号已被禁用，请联系客服", "error_code": "revoked"}
         if saved_pwd != password:
+            auth.mark_login_fail(client_ip)
             return {"ok": False, "error": "账号或密码不正确", "error_code": "bad_password"}
 
-        # 让位：同一个 install_id 若被别的账号占着，先释放（以最后登录的账号为准）
-        c.execute(
-            "UPDATE pcc_users SET install_id = '' WHERE install_id = %s AND id <> %s",
-            (install_id, user_id),
-        )
         cur = c.execute(
             """
             UPDATE pcc_users
@@ -327,41 +416,35 @@ def login_by_account(body: LoginIn, request: Request):
         "username": username,
         "password": password,
         "token": token,
+        "license_expires_at": iso(lic_exp),
+        "license_expires_at_ms": to_ms(lic_exp),
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
     }
 
 
 # ---------------------------------------------------------------------------
-# 核心记牌准入（需要登录；未登录一律 401）
+# 核心记牌准入 / 启动同步（需要登录；未登录或已作废/被顶号一律 401）
 # ---------------------------------------------------------------------------
 @secure.post("/record/start")
 def record_start(request: Request, user: dict = Depends(require_user)):
-    """进入记牌前的服务端校验。App 启动时调一次，结果缓存到本地（login_grace_days）。"""
+    """App 启动时校验一次：确认 token 仍有效，并返回账号维度最新授权到期时间。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     grace_days = int(cfg.get("auth", {}).get("login_grace_days", 7))
     with pool.connection() as c:
         cur = c.execute(
-            "UPDATE pcc_users SET last_record_at = now() WHERE id = %s RETURNING install_id",
+            "UPDATE pcc_users SET last_record_at = now() WHERE id = %s RETURNING license_expires_at",
             (user["id"],),
         )
         row = cur.fetchone()
-        install_id = (row[0] if row else "") or user["install_id"]
-        expires = None
-        if install_id:
-            cur = c.execute(
-                "SELECT license_expires_at FROM devices WHERE install_id = %s",
-                (install_id,),
-            )
-            r = cur.fetchone()
-            expires = r[0] if r else None
+        expires = row[0] if row else user["license_expires_at"]
     return {
         "ok": True,
         "username": user["username"],
         "license": {
             "active": expires is not None and expires > now(),
             "expires_at": iso(expires),
-            "expires_at_ms": int(expires.timestamp() * 1000) if expires else 0,
+            "expires_at_ms": to_ms(expires),
         },
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
         "server_time": iso(now()),

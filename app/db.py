@@ -1,4 +1,4 @@
-"""数据库连接池与查询辅助。"""
+"""数据库连接池、增量结构保障与查询辅助。"""
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -12,6 +12,28 @@ def make_pool(cfg: dict) -> ConnectionPool:
     pool = ConnectionPool(db_dsn(cfg), min_size=1, max_size=8, open=False)
     pool.open(wait=True, timeout=10)
     return pool
+
+
+def ensure_schema(pool: ConnectionPool) -> None:
+    """启动时幂等补齐增量列与表，避免升级部署忘记手动执行 schema.sql 导致 500。"""
+    stmts = [
+        "ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ",
+        "DROP INDEX IF EXISTS idx_pcc_users_install_uniq",
+        "CREATE INDEX IF NOT EXISTS idx_pcc_users_install ON pcc_users (install_id)",
+        "ALTER TABLE activations ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES pcc_users (id) ON DELETE SET NULL",
+        "ALTER TABLE activations ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS idx_activations_user ON activations (user_id, activated_at DESC)",
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key         TEXT PRIMARY KEY,
+            value       TEXT NOT NULL DEFAULT '',
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """,
+    ]
+    with pool.connection() as c:
+        for sql in stmts:
+            c.execute(sql)
 
 
 @contextmanager

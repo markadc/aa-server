@@ -3,7 +3,7 @@
 {% block content %}
 <h1>用户</h1>
 
-<p style="color:var(--dim);margin-top:-8px">共 {{ total }} 个。用户名 <code>user</code>+4 位数字（1 万个名额），密码明文存储（机主要求）。一台设备一个账号，退出登录后再点「快速登录」复用同号。</p>
+<p style="color:var(--dim);margin-top:-8px">共 {{ total }} 个。授权绑定在账号维度（换机登录自动带走授权）；密码按机主要求明文存储。</p>
 
 <form class="inline" method="get" action="/admin/users">
   <input name="q" value="{{ q }}" placeholder="搜索用户名 / install_id" style="width:280px">
@@ -11,15 +11,20 @@
 </form>
 
 <table>
-  <tr><th>用户名</th><th>密码</th><th>设备 install_id</th><th>创建</th><th>最后登录</th><th>最后记牌</th><th>状态</th><th></th></tr>
+  <tr><th>用户名</th><th>密码</th><th>授权状态</th><th>最后设备</th><th>创建</th><th>最后登录</th><th>最后启动校验</th><th>状态</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td class="mono">{{ r[1] }}</td>
     <td class="mono">{{ r[2] }}</td>
+    <td>
+      {% if r[8] and r[8] > now %}<span class="tag t-ok">至 {{ iso(r[8])[:10] }}</span>
+      {% elif r[8] %}<span class="tag t-exp">已过期 {{ iso(r[8])[:10] }}</span>
+      {% else %}<span class="tag t-used">未激活</span>{% endif %}
+    </td>
     <td class="mono">{{ (r[3] or '')[:16] }}</td>
-    <td class="mono">{{ iso(r[4]) }}</td>
-    <td class="mono">{{ iso(r[5]) }}</td>
-    <td class="mono">{{ iso(r[6]) or '—' }}</td>
+    <td class="mono">{{ iso(r[4])[:19] if r[4] else '' }}</td>
+    <td class="mono">{{ iso(r[5])[:19] if r[5] else '' }}</td>
+    <td class="mono">{{ iso(r[6])[:19] if r[6] else '—' }}</td>
     <td>
       {% if r[7] %}<span class="tag t-revoked">已作废</span>
       {% else %}<span class="tag t-ok">正常</span>{% endif %}
@@ -27,7 +32,7 @@
     <td style="white-space:nowrap">
       {% if not r[7] %}
       <form method="post" action="/admin/users/{{ r[0] }}/revoke" style="margin:0;display:inline">
-        <button class="danger ghost" type="submit" onclick="return confirm('作废该账号？token 立即失效，同时释放设备占用（该设备可重新注册新号）')">作废</button>
+        <button class="danger ghost" type="submit" onclick="return confirm('作废该账号？token 立即失效，下次启动校验自动踢出')">作废</button>
       </form>
       {% endif %}
       <form method="post" action="/admin/users/{{ r[0] }}/delete" style="margin:0;display:inline">
@@ -36,7 +41,7 @@
     </td>
   </tr>
   {% else %}
-  <tr><td colspan="8" class="empty">还没有用户</td></tr>
+  <tr><td colspan="9" class="empty">还没有用户</td></tr>
   {% endfor %}
 </table>
 

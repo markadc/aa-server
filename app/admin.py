@@ -1,4 +1,4 @@
-"""管理后台：登录、兑换码、设备。"""
+"""管理后台：登录、概览、兑换码、设备、用户、在线配置设置。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,6 +7,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from . import settings
 from .api import gen_code, iso, now
 from .security import verify_password
 
@@ -61,8 +62,10 @@ def dashboard(request: Request):
         unused, total = cur.fetchone()
         cur = c.execute("SELECT count(*) FROM devices")
         (devices,) = cur.fetchone()
-        cur = c.execute("SELECT count(*) FROM devices WHERE license_expires_at > now()")
-        (active,) = cur.fetchone()
+        cur = c.execute(
+            "SELECT count(*), count(*) FILTER (WHERE NOT revoked AND license_expires_at > now()) FROM pcc_users"
+        )
+        users_total, active_users = cur.fetchone()
         cur = c.execute(
             """
             SELECT code, days, note, created_at, used_at, used_by, revoked
@@ -72,20 +75,21 @@ def dashboard(request: Request):
         recent = cur.fetchall()
         cur = c.execute(
             """
-            SELECT install_id, model, app_version, last_seen, license_expires_at
-              FROM devices ORDER BY last_seen DESC LIMIT 10
+            SELECT username, install_id, last_login_at, last_record_at, license_expires_at, revoked
+              FROM pcc_users ORDER BY last_login_at DESC LIMIT 10
             """
         )
-        recent_devices = cur.fetchall()
+        recent_users = cur.fetchall()
     return render(
         request,
         "dashboard.html",
         unused=unused,
         total=total,
         devices=devices,
-        active=active,
+        users_total=users_total,
+        active_users=active_users,
         recent=recent,
-        recent_devices=recent_devices,
+        recent_users=recent_users,
         iso=iso,
         now=now(),
     )
@@ -172,7 +176,7 @@ def keys_revoke(request: Request, key_id: int):
         return r
     pool = request.app.state.pool
     with pool.connection() as c:
-        cur = c.execute("UPDATE license_keys SET revoked = true WHERE id = %s AND used_at IS NULL", (key_id,))
+        c.execute("UPDATE license_keys SET revoked = true WHERE id = %s AND used_at IS NULL", (key_id,))
     return RedirectResponse("/admin/keys", status_code=303)
 
 
@@ -194,7 +198,7 @@ def users_page(request: Request, page: int = 1, q: str = ""):
         cur = c.execute(
             f"""
             SELECT id, username, password, install_id, created_at, last_login_at,
-                   last_record_at, revoked
+                   last_record_at, revoked, license_expires_at
               FROM pcc_users {sql_where}
              ORDER BY created_at DESC
              LIMIT %s OFFSET %s
@@ -204,13 +208,21 @@ def users_page(request: Request, page: int = 1, q: str = ""):
         rows = cur.fetchall()
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(
-        request, "users.html", rows=rows, page=page, pages=pages, total=total, q=q, iso=iso
+        request,
+        "users.html",
+        rows=rows,
+        page=page,
+        pages=pages,
+        total=total,
+        q=q,
+        iso=iso,
+        now=now(),
     )
 
 
 @router.post("/users/{user_id}/revoke")
 def users_revoke(request: Request, user_id: int):
-    """作废 = 封账号 + 释放 install_id（设备可以重新注册新号，不会把设备锁死）。"""
+    """作废账号：token 立即失效（下次启动校验被踢出）。"""
     if (r := require_login(request)) is not None:
         return r
     pool = request.app.state.pool
@@ -224,7 +236,7 @@ def users_revoke(request: Request, user_id: int):
 
 @router.post("/users/{user_id}/delete")
 def users_delete(request: Request, user_id: int):
-    """彻底删除账号行（释放 install_id 与用户名）。"""
+    """彻底删除账号行（释放用户名）。"""
     if (r := require_login(request)) is not None:
         return r
     pool = request.app.state.pool
@@ -263,3 +275,35 @@ def devices_page(request: Request, page: int = 1, q: str = ""):
     return render(
         request, "devices.html", rows=rows, page=page, pages=pages, total=total, q=q, iso=iso, now=now()
     )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    if (r := require_login(request)) is not None:
+        return r
+    vals = settings.get_app_settings(request.app.state.pool, request.app.state.config)
+    return render(
+        request,
+        "settings.html",
+        kefu_qq=vals["kefu_qq"],
+        notice=vals["notice"],
+        saved=bool(request.query_params.get("saved")),
+    )
+
+
+@router.post("/settings")
+def settings_save(
+    request: Request,
+    kefu_qq: str = Form(""),
+    notice: str = Form(""),
+):
+    if (r := require_login(request)) is not None:
+        return r
+    settings.set_app_settings(
+        request.app.state.pool,
+        {
+            "kefu_qq": kefu_qq.strip(),
+            "notice": notice.strip(),
+        },
+    )
+    return RedirectResponse("/admin/settings?saved=1", status_code=303)

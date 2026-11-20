@@ -1,4 +1,4 @@
-"""pcc 服务端入口。启动：cd server && python3 -m app.main"""
+"""pcc 服务端入口。启动：cd aa-server && uv run python -m uvicorn app.main:app --host 0.0.0.0 --port 8800"""
 from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException
@@ -7,7 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import admin, api
 from .config import load_config
-from .db import make_pool
+from .db import ensure_schema, make_pool
 
 
 def create_app() -> FastAPI:
@@ -15,7 +15,7 @@ def create_app() -> FastAPI:
     docs_on = bool(cfg["server"].get("docs_enabled", False))
     app = FastAPI(
         title="pcc server",
-        version="1.0",
+        version="2.0",
         docs_url="/docs" if docs_on else None,
         redoc_url=None,
         openapi_url="/openapi.json" if docs_on else None,
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     )
     app.state.config = cfg
     app.state.pool = make_pool(cfg)
+    ensure_schema(app.state.pool)
     app.include_router(api.router)
     app.include_router(api.secure)
     app.include_router(admin.router)

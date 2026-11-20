@@ -31,7 +31,8 @@
   .t-ok { background:#1f3d24; color:#7ee787; }
   .t-exp { background:#3d1f1f; color:#ff7b72; }
   form.inline { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
-  input, select, button { background:#141414; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  input, select, textarea, button { background:#141414; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  textarea { width:100%; resize:vertical; }
   button { cursor:pointer; }
   button.primary { background:var(--amber); color:#1a1a1a; border:none; font-weight:600; }
   button.ghost { background:transparent; }
@@ -45,6 +46,9 @@
   .login h1 { font-size:18px; }
   .login input { width:100%; margin-bottom:12px; }
   .login button { width:100%; }
+  .field { margin-bottom:16px; }
+  .field label { display:block; color:var(--dim); font-size:13px; margin-bottom:6px; }
+  .field input { width:100%; max-width:420px; }
 </style>
 </head>
 <body>
@@ -52,8 +56,9 @@
 <nav>
   <a href="/admin" class="{{ 'on' if request.url.path in ['/admin','/admin/'] else '' }}">概览</a>
   <a href="/admin/keys" class="{{ 'on' if request.url.path.startswith('/admin/keys') else '' }}">兑换码</a>
-  <a href="/admin/devices" class="{{ 'on' if request.url.path.startswith('/admin/devices') else '' }}">设备</a>
   <a href="/admin/users" class="{{ 'on' if request.url.path.startswith('/admin/users') else '' }}">用户</a>
+  <a href="/admin/devices" class="{{ 'on' if request.url.path.startswith('/admin/devices') else '' }}">设备</a>
+  <a href="/admin/settings" class="{{ 'on' if request.url.path.startswith('/admin/settings') else '' }}">设置</a>
   <span class="spacer"></span>
   <span style="color:var(--dim)">{{ admin_user }}</span>
   <a href="/admin/logout">退出</a>

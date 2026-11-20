@@ -15,7 +15,7 @@
 </form>
 
 <form class="inline" method="get" action="/admin/keys">
-  <input name="q" value="{{ q }}" placeholder="搜索兑换码 / 备注 / 使用设备" style="width:280px">
+  <input name="q" value="{{ q }}" placeholder="搜索兑换码 / 备注 / 使用者" style="width:280px">
   <select name="status">
     <option value="" {{ 'selected' if not status else '' }}>全部</option>
     <option value="unused" {{ 'selected' if status == 'unused' else '' }}>未使用</option>
@@ -26,7 +26,7 @@
 </form>
 
 <table>
-  <tr><th>兑换码</th><th>天数</th><th>备注</th><th>状态</th><th>使用设备</th><th>创建</th><th>使用时间</th><th></th></tr>
+  <tr><th>兑换码</th><th>天数</th><th>备注</th><th>状态</th><th>使用者（账号/设备）</th><th>创建</th><th>使用时间</th><th></th></tr>
   {% for r in rows %}
   <tr>
     <td class="mono">{{ r[1] }}</td>
