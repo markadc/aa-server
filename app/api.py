@@ -18,6 +18,7 @@ secure = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
 
 _HEX16_RE = re.compile(r"^[0-9A-F]{16}$")
 _PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
+BJ_TZ = timezone(timedelta(hours=8))
 
 
 def now() -> datetime:
@@ -25,7 +26,7 @@ def now() -> datetime:
 
 
 def iso(dt: datetime | None) -> str | None:
-    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S") if dt else None
+    return dt.astimezone(BJ_TZ).strftime("%Y-%m-%d %H:%M:%S") if dt else None
 
 
 def to_ms(dt: datetime | None) -> int:
