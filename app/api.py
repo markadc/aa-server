@@ -194,18 +194,26 @@ def quick_login(body: QuickLoginIn, request: Request):
     client_ip = (request.client.host if request.client else "") or ""
 
     with pool.connection() as c:
-        # 已登录过这个设备：复用账号，只轮换 token
+        # 先看这个设备有没有账号（不管 revoked），避免 INSERT 撞 install_id 唯一索引
         cur = c.execute(
-            """
-            UPDATE pcc_users SET token = %s, last_login_at = now()
-             WHERE install_id = %s AND revoked = false
-            RETURNING username, password, token
-            """,
-            (auth.gen_token(), install_id),
+            "SELECT id, username, password, revoked FROM pcc_users WHERE install_id = %s",
+            (install_id,),
         )
         row = cur.fetchone()
         if row is not None:
-            username, password, token = row
+            user_id, username, password, revoked = row
+            if revoked:
+                return {
+                    "ok": False,
+                    "error": "账号已被禁用，请联系客服",
+                    "error_code": "revoked",
+                }
+            # 复用账号，只轮换 token（退出登录后再点不会变成新号）
+            cur = c.execute(
+                "UPDATE pcc_users SET token = %s, last_login_at = now() WHERE id = %s RETURNING token",
+                (auth.gen_token(), user_id),
+            )
+            token = cur.fetchone()[0]
             return {
                 "ok": True,
                 "reused": True,
