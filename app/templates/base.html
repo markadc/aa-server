@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}pcc 控制台{% endblock %}</title>
+<script>
+(function () {
+  try {
+    if (localStorage.getItem('pcc_admin_theme') === 'light') {
+      document.documentElement.setAttribute('data-theme', 'light');
+    }
+  } catch (e) {}
+})();
+</script>
 <style>
   :root {
     --bg-deep: #0f0f10;
@@ -11,6 +20,13 @@
     --surface: #19191b;
     --raised: #232325;
     --hover: #202023;
+    --btn-hover: #2b2b2e;
+    --btn-primary-bg: #ededed;
+    --btn-primary-fg: #111112;
+    --btn-primary-hover: #ffffff;
+    --th-bg: rgba(255, 255, 255, 0.015);
+    --tr-hover: rgba(255, 255, 255, 0.025);
+    --card-shadow: none;
     --hairline: rgba(237, 237, 237, 0.08);
     --hairline-strong: rgba(237, 237, 237, 0.14);
     --fg: #ededed;
@@ -25,6 +41,32 @@
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
     --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --mono: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  }
+
+  [data-theme="light"] {
+    --bg-deep: #f4f4f5;
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --raised: #f4f4f5;
+    --hover: #ededef;
+    --btn-hover: #e8e8eb;
+    --btn-primary-bg: #171717;
+    --btn-primary-fg: #ffffff;
+    --btn-primary-hover: #2e2e32;
+    --th-bg: #fafafa;
+    --tr-hover: #f7f7f8;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --hairline: rgba(23, 23, 23, 0.08);
+    --hairline-strong: rgba(23, 23, 23, 0.14);
+    --fg: #171717;
+    --fg-2: #525252;
+    --fg-3: #737373;
+    --accent: #b45309;
+    --accent-soft: rgba(180, 83, 9, 0.1);
+    --ok: #16a34a;
+    --ok-soft: rgba(22, 163, 74, 0.1);
+    --danger: #dc2626;
+    --danger-soft: rgba(220, 38, 38, 0.1);
   }
 
   * { box-sizing: border-box; }
@@ -189,6 +231,44 @@
     background: var(--ok);
   }
 
+  .sidebar-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--fg-3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 140ms var(--ease), background-color 140ms var(--ease), border-color 140ms var(--ease);
+  }
+
+  .icon-btn:hover {
+    color: var(--fg);
+    background: var(--hover);
+    border-color: var(--hairline);
+  }
+
+  .theme-icon-sun { display: none; }
+  .theme-icon-moon { display: block; }
+  [data-theme="light"] .theme-icon-sun { display: block; }
+  [data-theme="light"] .theme-icon-moon { display: none; }
+
+  .login-theme-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+  }
+
   .logout-link {
     display: inline-flex;
     align-items: center;
@@ -274,6 +354,7 @@
     border: 1px solid var(--hairline);
     border-radius: 12px;
     padding: 20px;
+    box-shadow: var(--card-shadow);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -334,6 +415,7 @@
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 16px;
+    box-shadow: var(--card-shadow);
   }
 
   .toolbar {
@@ -389,7 +471,7 @@
   }
 
   input:hover, select:hover, textarea:hover {
-    border-color: rgba(237, 237, 237, 0.22);
+    border-color: var(--fg-3);
   }
 
   input:focus-visible, select:focus-visible, textarea:focus-visible {
@@ -422,8 +504,8 @@
   }
 
   button:hover, .btn:hover {
-    background: #2b2b2e;
-    border-color: rgba(237, 237, 237, 0.2);
+    background: var(--btn-hover);
+    border-color: var(--hairline-strong);
   }
 
   button:active, .btn:active {
@@ -436,14 +518,14 @@
   }
 
   button.primary {
-    background: var(--fg);
-    color: #111112;
+    background: var(--btn-primary-bg);
+    color: var(--btn-primary-fg);
     border-color: transparent;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
 
   button.primary:hover {
-    background: #ffffff;
+    background: var(--btn-primary-hover);
   }
 
   button.ghost {
@@ -479,6 +561,7 @@
     border: 1px solid var(--hairline);
     border-radius: 12px;
     overflow-x: auto;
+    box-shadow: var(--card-shadow);
   }
 
   table {
@@ -499,7 +582,7 @@
     color: var(--fg-3);
     font-weight: 500;
     font-size: 12px;
-    background: rgba(255, 255, 255, 0.015);
+    background: var(--th-bg);
     white-space: nowrap;
   }
 
@@ -508,7 +591,7 @@
   }
 
   tbody tr:hover {
-    background: rgba(255, 255, 255, 0.025);
+    background: var(--tr-hover);
   }
 
   tbody tr:last-child td {
@@ -822,10 +905,16 @@
 
     <div class="sidebar-foot">
       <span class="admin-id"><span class="live-dot"></span>{{ admin_user }}</span>
-      <a class="logout-link" href="/admin/logout" title="退出登录">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>退出</span>
-      </a>
+      <div class="sidebar-actions">
+        <button type="button" class="icon-btn" data-theme-toggle title="切换浅色 / 深色主题" aria-label="切换浅色或深色主题">
+          <svg class="theme-icon-sun" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg class="theme-icon-moon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+        <a class="logout-link" href="/admin/logout" title="退出登录" onclick="return confirm('确认退出管理后台？')">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span>退出</span>
+        </a>
+      </div>
     </div>
   </aside>
 
@@ -834,6 +923,10 @@
   </main>
 </div>
 {% else %}
+<button type="button" class="icon-btn login-theme-btn" data-theme-toggle title="切换浅色 / 深色主题" aria-label="切换浅色或深色主题">
+  <svg class="theme-icon-sun" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+  <svg class="theme-icon-moon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+</button>
 {% block auth_content %}{% endblock %}
 {% endif %}
 
@@ -850,6 +943,19 @@
     timer = setTimeout(function () { toast.classList.remove('show'); }, 1400);
   }
   document.addEventListener('click', function (e) {
+    var toggle = e.target.closest('[data-theme-toggle]');
+    if (toggle) {
+      var root = document.documentElement;
+      var isLight = root.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        root.removeAttribute('data-theme');
+        try { localStorage.setItem('pcc_admin_theme', 'dark'); } catch (err) {}
+      } else {
+        root.setAttribute('data-theme', 'light');
+        try { localStorage.setItem('pcc_admin_theme', 'light'); } catch (err) {}
+      }
+      return;
+    }
     var el = e.target.closest('[data-copy]');
     if (!el) return;
     var text = el.getAttribute('data-copy');
