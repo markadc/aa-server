@@ -1,56 +1,120 @@
 {% extends "base.html" %}
-{% block title %}概览 · pcc 管理后台{% endblock %}
+{% block title %}概览 · pcc 控制台{% endblock %}
 {% block content %}
-<h1>概览</h1>
-
-<div class="cards">
-  <div class="card"><div class="num">{{ users_total }}</div><div class="lab">用户总数（有效授权 {{ active_users }}）</div></div>
-  <div class="card"><div class="num">{{ unused }}</div><div class="lab">未用兑换码（共 {{ total }}）</div></div>
-  <div class="card"><div class="num">{{ active_users }}</div><div class="lab">当前有效授权账号</div></div>
-  <div class="card"><div class="num">{{ devices }}</div><div class="lab">上报设备总数</div></div>
+<div class="page-head">
+  <div>
+    <h1>概览</h1>
+    <p class="page-sub">账号授权、兑换码库存与待处理反馈一览</p>
+  </div>
 </div>
 
-<h2>最近活跃账号</h2>
-<table>
-  <tr><th>用户名</th><th>最后设备</th><th>最后登录</th><th>最后启动校验</th><th>授权状态</th><th>账号状态</th></tr>
-  {% for u in recent_users %}
-  <tr>
-    <td class="mono">{{ u[0] }}</td>
-    <td class="mono">{{ (u[1] or '')[:16] }}</td>
-    <td>{{ iso(u[2])[:19] if u[2] else '' }}</td>
-    <td>{{ iso(u[3])[:19] if u[3] else '—' }}</td>
-    <td>
-      {% if u[4] and u[4] > now %}<span class="tag t-ok">至 {{ iso(u[4])[:10] }}</span>
-      {% else %}<span class="tag t-exp">未激活</span>{% endif %}
-    </td>
-    <td>
-      {% if u[5] %}<span class="tag t-revoked">已作废</span>
-      {% else %}<span class="tag t-ok">正常</span>{% endif %}
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6" class="empty">还没有用户</td></tr>
-  {% endfor %}
-</table>
+{% set active_pct = ((active_users * 100) // users_total) if users_total > 0 else 0 %}
+<div class="stats-grid">
+  <a class="stat-card" href="/admin/users">
+    <div class="stat-label">
+      <span>有效授权账号</span>
+      <span class="mono muted">{{ active_pct }}%</span>
+    </div>
+    <div class="stat-num accent">{{ active_users }}</div>
+    <div class="meter"><div class="meter-fill" style="width:{{ active_pct }}%"></div></div>
+    <div class="stat-meta">共 {{ users_total }} 个注册账号</div>
+  </a>
 
-<h2>最近生成的兑换码</h2>
-<table>
-  <tr><th>兑换码</th><th>天数</th><th>备注</th><th>状态</th><th>使用者（账号/设备）</th><th>创建时间</th></tr>
-  {% for r in recent %}
-  <tr>
-    <td class="mono">{{ r[0] }}</td>
-    <td>{{ r[1] }}</td>
-    <td>{{ r[2] }}</td>
-    <td>
-      {% if r[6] %}<span class="tag t-revoked">已作废</span>
-      {% elif r[4] %}<span class="tag t-used">已使用</span>
-      {% else %}<span class="tag t-unused">未使用</span>{% endif %}
-    </td>
-    <td class="mono">{{ (r[5] or '')[:18] }}</td>
-    <td>{{ iso(r[3])[:19] if r[3] else '' }}</td>
-  </tr>
-  {% else %}
-  <tr><td colspan="6" class="empty">还没有兑换码</td></tr>
-  {% endfor %}
-</table>
+  <a class="stat-card" href="/admin/keys?status=unused">
+    <div class="stat-label"><span>未用兑换码</span></div>
+    <div class="stat-num">{{ unused }}</div>
+    <div class="stat-meta">已发放共 {{ total }} 个</div>
+  </a>
+
+  <a class="stat-card" href="/admin/feedbacks?status=open">
+    <div class="stat-label">
+      <span>待处理反馈</span>
+      {% if fb_open > 0 %}<span class="tag t-warn">需查看</span>{% endif %}
+    </div>
+    <div class="stat-num">{{ fb_open }}</div>
+    <div class="stat-meta">累计 {{ fb_total }} 条反馈</div>
+  </a>
+
+  <a class="stat-card" href="/admin/devices">
+    <div class="stat-label"><span>上报设备</span></div>
+    <div class="stat-num">{{ devices }}</div>
+    <div class="stat-meta">独立安装设备数</div>
+  </a>
+</div>
+
+<div class="section-head">
+  <h2>最近活跃账号</h2>
+  <a class="section-link" href="/admin/users">查看全部</a>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>账号</th>
+        <th>最后设备</th>
+        <th>最后登录</th>
+        <th>最后启动校验</th>
+        <th>授权状态</th>
+        <th>账号状态</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in recent_users %}
+      <tr>
+        <td><span class="code-chip" data-copy="{{ u[0] }}" title="点击复制">{{ u[0] }}</span></td>
+        <td class="mono muted">{{ (u[1] or '—')[:16] }}</td>
+        <td class="mono secondary">{{ iso(u[2])[:19] if u[2] else '—' }}</td>
+        <td class="mono secondary">{{ iso(u[3])[:19] if u[3] else '—' }}</td>
+        <td>
+          {% if u[4] and u[4] > now %}<span class="tag t-ok">至 {{ iso(u[4])[:10] }}</span>
+          {% else %}<span class="tag t-used">未激活</span>{% endif %}
+        </td>
+        <td>
+          {% if u[5] %}<span class="tag t-revoked">已作废</span>
+          {% else %}<span class="tag t-ok">正常</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">暂无注册账号</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="section-head">
+  <h2>最近生成的兑换码</h2>
+  <a class="section-link" href="/admin/keys">查看全部</a>
+</div>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>兑换码</th>
+        <th class="num-col">天数</th>
+        <th>备注</th>
+        <th>状态</th>
+        <th>使用者</th>
+        <th>创建时间</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in recent %}
+      <tr>
+        <td><span class="code-chip" data-copy="{{ r[0] }}" title="点击复制">{{ r[0] }}</span></td>
+        <td class="num-col">{{ r[1] }}</td>
+        <td class="secondary">{{ r[2] or '—' }}</td>
+        <td>
+          {% if r[6] %}<span class="tag t-revoked">已作废</span>
+          {% elif r[4] %}<span class="tag t-used">已使用</span>
+          {% else %}<span class="tag t-unused">未使用</span>{% endif %}
+        </td>
+        <td class="mono secondary">{{ (r[5] or '—')[:18] }}</td>
+        <td class="mono secondary">{{ iso(r[3])[:19] if r[3] else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">暂无兑换码</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

@@ -474,6 +474,10 @@ class FakeConnection:
             self.db.pcc_feedbacks = [fb for fb in self.db.pcc_feedbacks if fb["id"] != fid]
             return FakeCursor()
 
+        if norm == "SELECT count(*) FILTER (WHERE status = 'open'), count(*) FROM pcc_feedbacks":
+            fb_open = sum(1 for fb in self.db.pcc_feedbacks if fb["status"] == "open")
+            return FakeCursor([(fb_open, len(self.db.pcc_feedbacks))])
+
         if norm.startswith("SELECT count(*) FROM pcc_feedbacks"):
             rows = self._filter_feedbacks(norm, params)
             return FakeCursor([(len(rows),)])

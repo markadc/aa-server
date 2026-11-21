@@ -1,21 +1,28 @@
 {% extends "base.html" %}
-{% block title %}系统设置 · pcc 管理后台{% endblock %}
+{% block title %}系统设置 · pcc 控制台{% endblock %}
 {% block content %}
-<h1>系统设置</h1>
+<div class="page-head">
+  <div>
+    <h1>系统设置</h1>
+    <p class="page-sub">修改后立即生效，客户端拉取 /api/v1/app/config 自动同步</p>
+  </div>
+</div>
 
 {% if saved %}
-<div class="notice">设置已保存并立即生效（APK 下次启动拉取 /api/v1/app/config 自动刷新，无需重启服务端）。</div>
+<div class="notice">设置已保存并立即生效，无需重启服务</div>
 {% endif %}
 
-<div class="card" style="max-width:680px">
+<div class="panel" style="max-width:640px">
   <form method="post" action="/admin/settings">
     <div class="field">
-      <label for="kefu_qq">客服 QQ（点击「联系客服」复制的号码；留空则 APK 兜底复制 123456789）</label>
-      <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789">
+      <label for="kefu_qq">客服 QQ</label>
+      <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789" style="width:100%;max-width:360px">
+      <div class="field-hint">点击「联系客服」时复制的号码；留空则客户端兜底复制 123456789</div>
     </div>
     <div class="field">
-      <label for="notice">公告内容（APK「我的」页顶部卡片展示；留空则显示「暂无公告」）</label>
-      <textarea id="notice" name="notice" rows="5" placeholder="输入公告内容，留空即暂无公告">{{ notice }}</textarea>
+      <label for="notice">公告内容</label>
+      <textarea id="notice" name="notice" rows="5" placeholder="输入公告内容，留空显示「暂无公告」">{{ notice }}</textarea>
+      <div class="field-hint">展示在客户端「我的」页顶部公告卡片</div>
     </div>
     <button class="primary" type="submit">保存设置</button>
   </form>

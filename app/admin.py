@@ -67,6 +67,10 @@ def dashboard(request: Request):
         )
         users_total, active_users = cur.fetchone()
         cur = c.execute(
+            "SELECT count(*) FILTER (WHERE status = 'open'), count(*) FROM pcc_feedbacks"
+        )
+        fb_open, fb_total = cur.fetchone()
+        cur = c.execute(
             """
             SELECT code, days, note, created_at, used_at, used_by, revoked
               FROM license_keys ORDER BY created_at DESC LIMIT 10
@@ -88,6 +92,8 @@ def dashboard(request: Request):
         devices=devices,
         users_total=users_total,
         active_users=active_users,
+        fb_open=fb_open,
+        fb_total=fb_total,
         recent=recent,
         recent_users=recent_users,
         iso=iso,

@@ -1,23 +1,39 @@
 {% extends "base.html" %}
-{% block title %}兑换码 · pcc 管理后台{% endblock %}
+{% block title %}兑换码 · pcc 控制台{% endblock %}
 {% block content %}
-<h1>兑换码</h1>
+<div class="page-head">
+  <div>
+    <h1>兑换码</h1>
+    <p class="page-sub">批量生成与作废管理，点击任意兑换码可直接复制</p>
+  </div>
+</div>
 
 {% if request.query_params.get('generated') %}
-<div class="notice">已生成 {{ request.query_params.get('generated') }} 个兑换码，最新列表在下方。</div>
+<div class="notice">已生成 {{ request.query_params.get('generated') }} 个兑换码，最新记录已排在列表顶部</div>
 {% endif %}
 
-<form class="inline" method="post" action="/admin/keys/generate">
-  <input name="count" type="number" value="10" min="1" max="500" style="width:90px" title="数量">
-  <input name="days" type="number" value="0" min="0" style="width:90px" title="天数（0=默认）">
-  <input name="note" placeholder="备注（可选）" style="width:200px">
-  <button class="primary" type="submit">生成</button>
-</form>
+<div class="panel">
+  <form class="toolbar" method="post" action="/admin/keys/generate" style="margin-bottom:0">
+    <div class="field-inline">
+      <label for="gen-count">数量</label>
+      <input id="gen-count" name="count" type="number" value="10" min="1" max="500" style="width:100px">
+    </div>
+    <div class="field-inline">
+      <label for="gen-days">天数（0 为默认）</label>
+      <input id="gen-days" name="days" type="number" value="0" min="0" style="width:120px">
+    </div>
+    <div class="field-inline" style="flex:1;min-width:200px">
+      <label for="gen-note">备注</label>
+      <input id="gen-note" name="note" placeholder="批次备注，选填">
+    </div>
+    <button class="primary" type="submit">生成兑换码</button>
+  </form>
+</div>
 
-<form class="inline" method="get" action="/admin/keys">
-  <input name="q" value="{{ q }}" placeholder="搜索兑换码 / 备注 / 使用者" style="width:280px">
-  <select name="status">
-    <option value="" {{ 'selected' if not status else '' }}>全部</option>
+<form class="toolbar" method="get" action="/admin/keys">
+  <input name="q" value="{{ q }}" placeholder="搜索兑换码、备注或使用者" style="width:280px">
+  <select name="status" aria-label="状态筛选">
+    <option value="" {{ 'selected' if not status else '' }}>全部状态</option>
     <option value="unused" {{ 'selected' if status == 'unused' else '' }}>未使用</option>
     <option value="used" {{ 'selected' if status == 'used' else '' }}>已使用</option>
     <option value="revoked" {{ 'selected' if status == 'revoked' else '' }}>已作废</option>
@@ -25,37 +41,56 @@
   <button type="submit">筛选</button>
 </form>
 
-<table>
-  <tr><th>兑换码</th><th>天数</th><th>备注</th><th>状态</th><th>使用者（账号/设备）</th><th>创建</th><th>使用时间</th><th></th></tr>
-  {% for r in rows %}
-  <tr>
-    <td class="mono">{{ r[1] }}</td>
-    <td>{{ r[2] }}</td>
-    <td>{{ r[3] }}</td>
-    <td>
-      {% if r[7] %}<span class="tag t-revoked">已作废</span>
-      {% elif r[5] %}<span class="tag t-used">已使用</span>
-      {% else %}<span class="tag t-unused">未使用</span>{% endif %}
-    </td>
-    <td class="mono">{{ (r[6] or '')[:16] }}</td>
-    <td>{{ iso(r[4])[:19] if r[4] else '' }}</td>
-    <td>{{ iso(r[5])[:19] if r[5] else '' }}</td>
-    <td>
-      {% if not r[5] and not r[7] %}
-      <form method="post" action="/admin/keys/{{ r[0] }}/revoke" style="display:inline">
-        <button class="ghost danger" type="submit" onclick="return confirm('作废这个兑换码？')">作废</button>
-      </form>
-      {% endif %}
-    </td>
-  </tr>
-  {% else %}
-  <tr><td colspan="8" class="empty">没有匹配的兑换码</td></tr>
-  {% endfor %}
-</table>
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>兑换码</th>
+        <th class="num-col">天数</th>
+        <th>备注</th>
+        <th>状态</th>
+        <th>使用者</th>
+        <th>创建时间</th>
+        <th>使用时间</th>
+        <th class="actions-col">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><span class="code-chip" data-copy="{{ r[1] }}" title="点击复制">{{ r[1] }}</span></td>
+        <td class="num-col">{{ r[2] }}</td>
+        <td class="secondary">{{ r[3] or '—' }}</td>
+        <td>
+          {% if r[7] %}<span class="tag t-revoked">已作废</span>
+          {% elif r[5] %}<span class="tag t-used">已使用</span>
+          {% else %}<span class="tag t-unused">未使用</span>{% endif %}
+        </td>
+        <td class="mono secondary">{{ (r[6] or '—')[:16] }}</td>
+        <td class="mono secondary">{{ iso(r[4])[:19] if r[4] else '—' }}</td>
+        <td class="mono secondary">{{ iso(r[5])[:19] if r[5] else '—' }}</td>
+        <td class="actions-col">
+          {% if not r[5] and not r[7] %}
+          <form method="post" action="/admin/keys/{{ r[0] }}/revoke">
+            <button class="ghost danger" type="submit" onclick="return confirm('作废这个兑换码？')">作废</button>
+          </form>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="empty">没有匹配的兑换码</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 
 <div class="pager">
-  <span>共 {{ total }} 条 · 第 {{ page }}/{{ pages }} 页</span>
-  {% if page > 1 %}<a href="?page={{ page - 1 }}&q={{ q }}&status={{ status }}">上一页</a>{% endif %}
-  {% if page < pages %}<a href="?page={{ page + 1 }}&q={{ q }}&status={{ status }}">下一页</a>{% endif %}
+  <span>共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
+  <div class="pager-links">
+    {% if page > 1 %}<a href="?page={{ page - 1 }}&q={{ q }}&status={{ status }}">上一页</a>{% endif %}
+    {% if page < pages %}<a href="?page={{ page + 1 }}&q={{ q }}&status={{ status }}">下一页</a>{% endif %}
+  </div>
 </div>
 {% endblock %}
