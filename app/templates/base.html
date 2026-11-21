@@ -799,6 +799,82 @@
     margin-top: 4px;
   }
 
+  /* Custom Confirm Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.56);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms var(--ease);
+    z-index: 120;
+  }
+
+  [data-theme="light"] .modal-backdrop {
+    background: rgba(15, 15, 16, 0.32);
+  }
+
+  .modal-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .modal-dialog {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--hairline-strong);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32);
+    transform: translateY(8px) scale(0.98);
+    transition: transform 180ms var(--ease);
+  }
+
+  [data-theme="light"] .modal-dialog {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+  }
+
+  .modal-backdrop.open .modal-dialog {
+    transform: translateY(0) scale(1);
+  }
+
+  .modal-title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .modal-msg {
+    margin: 0 0 24px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-2);
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  button.danger-solid {
+    background: var(--danger);
+    color: #ffffff;
+    border-color: transparent;
+  }
+
+  button.danger-solid:hover {
+    background: #cf3a3f;
+    border-color: transparent;
+    color: #ffffff;
+  }
+
   /* Copy toast */
   .copy-toast {
     position: fixed;
@@ -910,7 +986,7 @@
           <svg class="theme-icon-sun" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
           <svg class="theme-icon-moon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
         </button>
-        <a class="logout-link" href="/admin/logout" title="退出登录" onclick="return confirm('确认退出管理后台？')">
+        <a class="logout-link" href="/admin/logout" title="退出登录" data-confirm="退出后需要重新输入管理员账号和密码" data-confirm-title="退出管理后台" data-confirm-ok="退出">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           <span>退出</span>
         </a>
@@ -930,6 +1006,17 @@
 {% block auth_content %}{% endblock %}
 {% endif %}
 
+<div id="confirm-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-hidden="true">
+  <div class="modal-dialog">
+    <h3 id="confirm-title" class="modal-title">确认操作</h3>
+    <p id="confirm-msg" class="modal-msg"></p>
+    <div class="modal-actions">
+      <button type="button" id="confirm-cancel">取消</button>
+      <button type="button" id="confirm-ok" class="primary">确认</button>
+    </div>
+  </div>
+</div>
+
 <div id="copy-toast" class="copy-toast" role="status" aria-live="polite"></div>
 <script>
 (function () {
@@ -942,7 +1029,68 @@
     clearTimeout(timer);
     timer = setTimeout(function () { toast.classList.remove('show'); }, 1400);
   }
+
+  var modal = document.getElementById('confirm-modal');
+  var mTitle = document.getElementById('confirm-title');
+  var mMsg = document.getElementById('confirm-msg');
+  var mCancel = document.getElementById('confirm-cancel');
+  var mOk = document.getElementById('confirm-ok');
+  var pendingAction = null;
+
+  function openConfirm(opts, onConfirm) {
+    mTitle.textContent = opts.title || '确认操作';
+    mMsg.textContent = opts.msg || '';
+    mOk.textContent = opts.okText || '确认';
+    mOk.className = opts.danger ? 'danger-solid' : 'primary';
+    pendingAction = onConfirm;
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    mCancel.focus();
+  }
+
+  function closeConfirm() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    pendingAction = null;
+  }
+
+  mCancel.addEventListener('click', closeConfirm);
+  mOk.addEventListener('click', function () {
+    var fn = pendingAction;
+    closeConfirm();
+    if (fn) fn();
+  });
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) closeConfirm();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) {
+      closeConfirm();
+    }
+  });
+
   document.addEventListener('click', function (e) {
+    var confirmEl = e.target.closest('[data-confirm]');
+    if (confirmEl) {
+      e.preventDefault();
+      var opts = {
+        title: confirmEl.getAttribute('data-confirm-title') || '确认操作',
+        msg: confirmEl.getAttribute('data-confirm'),
+        okText: confirmEl.getAttribute('data-confirm-ok') || '确认',
+        danger: confirmEl.getAttribute('data-confirm-danger') === '1'
+      };
+      if (confirmEl.tagName === 'A' && confirmEl.href) {
+        var href = confirmEl.href;
+        openConfirm(opts, function () { window.location.href = href; });
+      } else {
+        var form = confirmEl.closest('form');
+        if (form) {
+          openConfirm(opts, function () { form.submit(); });
+        }
+      }
+      return;
+    }
+
     var toggle = e.target.closest('[data-theme-toggle]');
     if (toggle) {
       var root = document.documentElement;

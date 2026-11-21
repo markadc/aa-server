@@ -51,16 +51,16 @@
         <td class="actions-col">
           {% if r[9] %}
           <form method="post" action="/admin/users/{{ r[0] }}/unbind-phone">
-            <button class="ghost" type="submit" onclick="return confirm('解绑该账号的手机号？')">解绑手机</button>
+            <button class="ghost" type="submit" data-confirm="解绑后该手机号将被释放，可由其他账号重新绑定" data-confirm-title="解绑手机号" data-confirm-ok="确认解绑">解绑手机</button>
           </form>
           {% endif %}
           {% if not r[7] %}
           <form method="post" action="/admin/users/{{ r[0] }}/revoke">
-            <button class="ghost danger" type="submit" onclick="return confirm('作废该账号？token 立即失效并释放手机号')">作废</button>
+            <button class="ghost danger" type="submit" data-confirm="作废后该账号 token 立即失效并释放手机号，无法再登录" data-confirm-title="作废账号" data-confirm-ok="确认作废" data-confirm-danger="1">作废</button>
           </form>
           {% endif %}
           <form method="post" action="/admin/users/{{ r[0] }}/delete">
-            <button class="ghost danger" type="submit" onclick="return confirm('彻底删除该账号？此操作不可恢复')">删除</button>
+            <button class="ghost danger" type="submit" data-confirm="彻底删除该账号及其登录凭证，此操作不可恢复" data-confirm-title="删除账号" data-confirm-ok="永久删除" data-confirm-danger="1">删除</button>
           </form>
         </td>
       </tr>

@@ -72,7 +72,7 @@
         <td class="actions-col">
           {% if not r[5] and not r[7] %}
           <form method="post" action="/admin/keys/{{ r[0] }}/revoke">
-            <button class="ghost danger" type="submit" onclick="return confirm('作废这个兑换码？')">作废</button>
+            <button class="ghost danger" type="submit" data-confirm="作废后该兑换码将无法核销，此操作不可撤销" data-confirm-title="作废兑换码" data-confirm-ok="确认作废" data-confirm-danger="1">作废</button>
           </form>
           {% else %}
           <span class="muted">—</span>
