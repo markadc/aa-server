@@ -20,6 +20,7 @@ def ensure_schema(pool: ConnectionPool) -> None:
         "ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ",
         "ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS prev_token TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT ''",
         "DROP INDEX IF EXISTS idx_pcc_users_install_uniq",
         "CREATE INDEX IF NOT EXISTS idx_pcc_users_install ON pcc_users (install_id)",
         "CREATE INDEX IF NOT EXISTS idx_pcc_users_prev_token ON pcc_users (prev_token) WHERE prev_token <> ''",

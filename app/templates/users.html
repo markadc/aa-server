@@ -9,7 +9,7 @@
 </div>
 
 <form class="toolbar" method="get" action="/admin/users">
-  <input name="q" value="{{ q }}" placeholder="搜索账号、手机号、android_id 或机型" style="width:300px">
+  <input name="q" value="{{ q }}" placeholder="搜索账号、备注、手机号、android_id 或机型" style="width:320px">
   <button type="submit">筛选</button>
   {% if q %}<a class="btn" href="/admin/users">重置</a>{% endif %}
 </form>
@@ -34,7 +34,19 @@
     <tbody>
       {% for r in rows %}
       <tr>
-        <td><span class="code-chip" data-copy="{{ r[1] }}" title="点击复制账号">{{ r[1] }}</span></td>
+        <td style="white-space:nowrap">
+          <div><span class="code-chip" data-copy="{{ r[1] }}" title="点击复制账号">{{ r[1] }}</span></div>
+          <div
+            class="user-note-line clickable"
+            data-note-display="{{ r[0] }}"
+            data-note-open
+            data-user-id="{{ r[0] }}"
+            data-user-name="{{ r[1] }}"
+            data-user-note="{{ r[13] or '' }}"
+            title="{{ r[13] or '' }}（点击编辑备注）"
+            {% if not r[13] %}style="display:none"{% endif %}
+          >{{ r[13] or '' }}</div>
+        </td>
         <td><span class="code-chip" data-copy="{{ r[2] }}" title="点击复制密码">{{ r[2] }}</span></td>
         <td class="mono secondary">{{ r[9] or '—' }}</td>
         <td>
@@ -74,6 +86,15 @@
           {% else %}<span class="tag t-ok">正常</span>{% endif %}
         </td>
         <td class="actions-col">
+          <button
+            type="button"
+            class="ghost"
+            data-note-open
+            data-note-btn="{{ r[0] }}"
+            data-user-id="{{ r[0] }}"
+            data-user-name="{{ r[1] }}"
+            data-user-note="{{ r[13] or '' }}"
+          >{{ '改备注' if r[13] else '备注' }}</button>
           {% if r[9] %}
           <form method="post" action="/admin/users/{{ r[0] }}/unbind-phone">
             <button class="ghost" type="submit" data-confirm="解绑后该手机号将被释放，可由其他账号重新绑定" data-confirm-title="解绑手机号" data-confirm-ok="确认解绑">解绑手机</button>
@@ -103,4 +124,121 @@
     {% if page < pages %}<a href="/admin/users?page={{ page + 1 }}&q={{ q }}">下一页</a>{% endif %}
   </div>
 </div>
+
+<div id="note-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="note-modal-title" aria-hidden="true">
+  <div class="modal-dialog" style="max-width:440px">
+    <h3 id="note-modal-title" class="modal-title">编辑备注</h3>
+    <div class="field" style="margin-bottom:16px">
+      <label for="note-modal-input">用户备注（最多 200 字，留空提交可清除备注）</label>
+      <textarea id="note-modal-input" rows="3" maxlength="200" placeholder="例如：微乐群老王 / 自用测试机 / 代理-张三"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="note-modal-cancel">取消</button>
+      <button type="button" id="note-modal-save" class="primary">保存备注</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var modal = document.getElementById('note-modal');
+  var title = document.getElementById('note-modal-title');
+  var input = document.getElementById('note-modal-input');
+  var cancel = document.getElementById('note-modal-cancel');
+  var saveBtn = document.getElementById('note-modal-save');
+  var toastEl = document.getElementById('copy-toast');
+  var toastTimer = null;
+  var curUid = null;
+
+  function notify(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1600);
+  }
+
+  function openModal(el) {
+    curUid = el.getAttribute('data-user-id');
+    var uname = el.getAttribute('data-user-name') || '';
+    var note = el.getAttribute('data-user-note') || '';
+    title.textContent = '备注 · ' + uname;
+    input.value = note;
+    saveBtn.disabled = false;
+    saveBtn.textContent = '保存备注';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    setTimeout(function () { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }, 40);
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    curUid = null;
+  }
+
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest('[data-note-open]');
+    if (trigger) openModal(trigger);
+  });
+
+  cancel.addEventListener('click', closeModal);
+  modal.addEventListener('click', function (e) {
+    if (e.target === modal) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
+  });
+
+  function submitNote() {
+    if (!curUid) return;
+    var uid = curUid;
+    var nextNote = (input.value || '').trim().slice(0, 200);
+    saveBtn.disabled = true;
+    saveBtn.textContent = '保存中…';
+    fetch('/admin/users/' + uid + '/note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ note: nextNote })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) {
+          notify((res && res.error) || '保存失败');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '保存备注';
+          return;
+        }
+        var saved = res.note || '';
+        var disp = document.querySelector('[data-note-display="' + uid + '"]');
+        var btn = document.querySelector('[data-note-btn="' + uid + '"]');
+        if (disp) {
+          disp.textContent = saved;
+          disp.setAttribute('data-user-note', saved);
+          disp.setAttribute('title', saved ? (saved + '（点击编辑备注）') : '');
+          disp.style.display = saved ? '' : 'none';
+        }
+        if (btn) {
+          btn.setAttribute('data-user-note', saved);
+          btn.textContent = saved ? '改备注' : '备注';
+        }
+        closeModal();
+        notify(saved ? '备注已保存' : '备注已清除');
+      })
+      .catch(function () {
+        notify('网络异常，保存失败');
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存备注';
+      });
+  }
+
+  saveBtn.addEventListener('click', submitNote);
+  input.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      submitNote();
+    }
+  });
+})();
+</script>
 {% endblock %}

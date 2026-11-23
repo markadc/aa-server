@@ -198,6 +198,17 @@ def keys_revoke(request: Request, key_id: int):
     return RedirectResponse("/admin/keys", status_code=303)
 
 
+def _fetch_user_notes(c, usernames: list[str]) -> dict[str, str]:
+    clean = list({u for u in usernames if u})
+    if not clean:
+        return {}
+    cur = c.execute(
+        "SELECT username, note FROM pcc_users WHERE username = ANY(%s) AND note <> ''",
+        (clean,),
+    )
+    return {uname: note for uname, note in cur.fetchall() if uname and note}
+
+
 @router.get("/users", response_class=HTMLResponse)
 def users_page(request: Request, page: int = 1, q: str = ""):
     if (r := require_login(request)) is not None:
@@ -206,10 +217,10 @@ def users_page(request: Request, page: int = 1, q: str = ""):
     where, args = [], []
     if q.strip():
         where.append(
-            "(u.username ILIKE %s OR u.phone ILIKE %s OR u.install_id ILIKE %s OR COALESCE(d.android_id, '') ILIKE %s OR COALESCE(d.model, '') ILIKE %s)"
+            "(u.username ILIKE %s OR u.phone ILIKE %s OR u.note ILIKE %s OR u.install_id ILIKE %s OR COALESCE(d.android_id, '') ILIKE %s OR COALESCE(d.model, '') ILIKE %s)"
         )
         like = f"%{q.strip()}%"
-        args += [like, like, like, like, like]
+        args += [like, like, like, like, like, like]
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
     pool = request.app.state.pool
     with pool.connection() as c:
@@ -222,7 +233,8 @@ def users_page(request: Request, page: int = 1, q: str = ""):
             f"""
             SELECT u.id, u.username, u.password, u.install_id, u.created_at, u.last_login_at,
                    u.last_record_at, u.revoked, u.license_expires_at, u.phone,
-                   COALESCE(d.android_id, ''), COALESCE(d.model, ''), COALESCE(d.os_version, '')
+                   COALESCE(d.android_id, ''), COALESCE(d.model, ''), COALESCE(d.os_version, ''),
+                   COALESCE(u.note, '')
               FROM pcc_users u
               LEFT JOIN devices d ON d.install_id = u.install_id
               {sql_where}
@@ -260,6 +272,30 @@ def users_page(request: Request, page: int = 1, q: str = ""):
         iso=iso,
         now=now(),
     )
+
+
+@router.post("/users/{user_id}/note")
+async def users_set_note(request: Request, user_id: int):
+    """保存或清空用户备注（支持 JSON 异步保存，原地更新不刷新）。"""
+    want_json = "application/json" in (request.headers.get("accept") or "")
+    if not request.session.get("uid"):
+        if want_json:
+            return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+        return RedirectResponse("/admin/login", status_code=303)
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        body = await request.json()
+        raw_note = str((body or {}).get("note", "") or "")
+    else:
+        form = await request.form()
+        raw_note = str(form.get("note", "") or "")
+    clean_note = raw_note.strip()[:200]
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("UPDATE pcc_users SET note = %s WHERE id = %s", (clean_note, user_id))
+    if want_json:
+        return JSONResponse({"ok": True, "note": clean_note})
+    return RedirectResponse("/admin/users", status_code=303)
 
 
 @router.post("/users/{user_id}/unbind-phone")
@@ -652,11 +688,13 @@ def feedbacks_page(request: Request, page: int = 1, q: str = "", status: str = "
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
         rows = cur.fetchall()
+        note_map = _fetch_user_notes(c, [r[1] for r in rows if r[1]])
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(
         request,
         "feedbacks.html",
         rows=rows,
+        note_map=note_map,
         page=page,
         pages=pages,
         total=total,
@@ -831,12 +869,14 @@ def usage_page(request: Request, page: int = 1, q: str = "", game: str = ""):
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
         rows = cur.fetchall()
+        note_map = _fetch_user_notes(c, [r[1] for r in rows if r[1]])
 
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(
         request,
         "usage.html",
         rows=rows,
+        note_map=note_map,
         page=page,
         pages=pages,
         total=total,

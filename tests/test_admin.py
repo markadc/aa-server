@@ -363,6 +363,65 @@ class TestAdminPanel(unittest.TestCase):
         self.assertIn("same_dev_1", dp.text)
         self.assertIn("same_dev_2", dp.text)
 
+    def test_user_note_save_search_and_cross_page_display(self) -> None:
+        self._login_admin()
+        u = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "inst-note-001", "username": "vip_wang", "password": "password99"},
+            client_ip="10.0.12.1",
+        ).json()
+        uid = self.pool.db.pcc_users[0]["id"]
+
+        # 异步 JSON 保存备注
+        r = self.client.request(
+            "POST",
+            f"/admin/users/{uid}/note",
+            json_body={"note": "微乐群老王 · 代理"},
+            headers={"Accept": "application/json"},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["ok"])
+        self.assertEqual(r.json()["note"], "微乐群老王 · 代理")
+
+        # 按备注搜索用户
+        search = self.client.request("GET", "/admin/users?q=老王")
+        self.assertEqual(search.status_code, 200)
+        self.assertIn("vip_wang", search.text)
+        self.assertIn("微乐群老王 · 代理", search.text)
+
+        # 上报使用记录与反馈，验证两页都能同步带出该用户的备注
+        import time
+        now_ms = int(time.time() * 1000)
+        self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-note-001",
+                "game": "微乐斗地主",
+                "started_at_ms": now_ms - 120000,
+                "ended_at_ms": now_ms,
+                "duration_sec": 120,
+                "rounds": 2,
+            },
+            headers={"X-Token": u["token"]},
+        )
+        self.client.request(
+            "POST",
+            "/api/v1/feedback",
+            json_body={"content": "识别很稳"},
+            headers={"X-Token": u["token"]},
+            client_ip="10.0.12.1",
+        )
+
+        usage_p = self.client.request("GET", "/admin/usage")
+        self.assertEqual(usage_p.status_code, 200)
+        self.assertIn("微乐群老王 · 代理", usage_p.text)
+
+        fb_p = self.client.request("GET", "/admin/feedbacks")
+        self.assertEqual(fb_p.status_code, 200)
+        self.assertIn("微乐群老王 · 代理", fb_p.text)
+
 
 if __name__ == "__main__":
     unittest.main()

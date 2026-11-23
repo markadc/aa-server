@@ -1347,6 +1347,25 @@
     display: none;
   }
 
+  .user-note-line {
+    margin-top: 4px;
+    max-width: 180px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .user-note-line.clickable {
+    cursor: pointer;
+  }
+
+  .user-note-line.clickable:hover {
+    text-decoration: underline;
+  }
+
   @media (max-width: 1080px) {
     .settings-grid {
       grid-template-columns: 1fr;

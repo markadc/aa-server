@@ -217,6 +217,7 @@ class FakeConnection:
                     "revoked": False,
                     "license_expires_at": None,
                     "phone": "",
+                    "note": "",
                 }
             )
             return FakeCursor([(username,)])
@@ -280,6 +281,17 @@ class FakeConnection:
                 if u["id"] == uid:
                     u["phone"] = ""
             return FakeCursor()
+
+        if norm == "UPDATE pcc_users SET note = %s WHERE id = %s":
+            note_val, uid = params
+            for u in self.db.pcc_users:
+                if u["id"] == uid:
+                    u["note"] = note_val
+            return FakeCursor()
+
+        if norm == "SELECT username, note FROM pcc_users WHERE username = ANY(%s) AND note <> ''":
+            names = set(params[0])
+            return FakeCursor([(u["username"], u.get("note", "")) for u in self.db.pcc_users if u["username"] in names and u.get("note")])
 
         if norm == "UPDATE pcc_users SET revoked = true, install_id = '', phone = '' WHERE id = %s":
             uid = params[0]
@@ -369,6 +381,7 @@ class FakeConnection:
                         d.get("android_id", ""),
                         d.get("model", ""),
                         d.get("os_version", ""),
+                        u.get("note", ""),
                     )
                 )
             return FakeCursor(out)
@@ -755,6 +768,7 @@ class FakeConnection:
             if (
                 self._like_match(u["username"], pat)
                 or self._like_match(u["phone"], pat)
+                or self._like_match(u.get("note", ""), pat)
                 or self._like_match(u["install_id"], pat)
                 or self._like_match(d.get("android_id", ""), pat)
                 or self._like_match(d.get("model", ""), pat)

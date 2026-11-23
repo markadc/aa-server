@@ -64,7 +64,9 @@
           <div class="muted" style="font-size:11px">至 {{ iso(r[5])[11:16] if r[5] else '—' }}</div>
         </td>
         <td style="white-space:nowrap">
-          <span class="code-chip" data-copy="{{ r[1] }}" title="点击复制账号">{{ r[1] or '—' }}</span>
+          <div><span class="code-chip" data-copy="{{ r[1] }}" title="点击复制账号">{{ r[1] or '—' }}</span></div>
+          {% set unote = note_map.get(r[1], '') %}
+          {% if unote %}<div class="user-note-line" title="{{ unote }}">{{ unote }}</div>{% endif %}
         </td>
         <td>
           <div>{{ r[2] or '未知游戏' }}</div>
