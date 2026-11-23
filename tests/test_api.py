@@ -502,6 +502,68 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(self.pool.db.pcc_usage_sessions[0]["rounds"], 6)
         self.assertEqual(self.pool.db.pcc_usage_sessions[0]["duration_sec"], 600)
 
+    def test_custom_register_validation_conflict_and_login(self) -> None:
+        # 用户名过短 -> invalid_username（不扣限流）
+        bad_u = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "dev-cust-001", "username": "ab", "password": "secret123"},
+            client_ip="10.0.10.1",
+        ).json()
+        self.assertFalse(bad_u["ok"])
+        self.assertEqual(bad_u["error_code"], "invalid_username")
+
+        # 密码过短 -> invalid_password（不扣限流）
+        bad_p = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "dev-cust-001", "username": "poker_king", "password": "123"},
+            client_ip="10.0.10.1",
+        ).json()
+        self.assertFalse(bad_p["ok"])
+        self.assertEqual(bad_p["error_code"], "invalid_password")
+
+        # 正常自定义注册成功
+        ok = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "dev-cust-001", "username": "poker_king", "password": "secret123"},
+            client_ip="10.0.10.1",
+        ).json()
+        self.assertTrue(ok["ok"])
+        self.assertEqual(ok["username"], "poker_king")
+        self.assertEqual(ok["password"], "secret123")
+        self.assertTrue(ok["token"])
+
+        # 重名拦截（换设备与 IP）-> username_taken，不扣限流
+        dup = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "dev-cust-002", "username": "poker_king", "password": "other123"},
+            client_ip="10.0.10.2",
+        ).json()
+        self.assertFalse(dup["ok"])
+        self.assertEqual(dup["error_code"], "username_taken")
+
+        # 紧接着换个新名字立刻可注册成功（证明重名未触发限流）
+        ok2 = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "dev-cust-002", "username": "poker_queen", "password": "other123"},
+            client_ip="10.0.10.2",
+        ).json()
+        self.assertTrue(ok2["ok"])
+        self.assertEqual(ok2["username"], "poker_queen")
+
+        # 可直接用自定义账密登录
+        lg = self.client.request(
+            "POST",
+            "/api/v1/auth/login",
+            json_body={"install_id": "dev-cust-003", "username": "poker_king", "password": "secret123"},
+        ).json()
+        self.assertTrue(lg["ok"])
+        self.assertEqual(lg["username"], "poker_king")
+
 
 if __name__ == "__main__":
     unittest.main()

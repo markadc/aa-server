@@ -19,6 +19,7 @@ secure = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
 
 _HEX16_RE = re.compile(r"^[0-9A-F]{16}$")
 _PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
+_CUSTOM_USER_RE = re.compile(r"^[A-Za-z0-9_]{4,20}$")
 BJ_TZ = timezone(timedelta(hours=8))
 
 
@@ -64,6 +65,12 @@ class RedeemIn(BaseModel):
 
 class QuickLoginIn(BaseModel):
     install_id: str = Field(min_length=8, max_length=64)
+
+
+class RegisterIn(BaseModel):
+    install_id: str = Field(min_length=8, max_length=64)
+    username: str = Field(default="", max_length=32)
+    password: str = Field(default="", max_length=64)
 
 
 class LoginIn(BaseModel):
@@ -424,16 +431,85 @@ def license_status(install_id: str, request: Request):
 # ---------------------------------------------------------------------------
 # 账号注册 / 登录（匿名，不要求 token）
 # ---------------------------------------------------------------------------
+def _create_custom_user(c, install_id: str, username: str, password: str, client_ip: str, cfg: dict):
+    """自定义用户名 + 密码注册（校验格式、不重名、仅成功计入限流）。"""
+    uname = username.strip()
+    pwd = password.strip()
+    if not _CUSTOM_USER_RE.match(uname):
+        return {
+            "ok": False,
+            "error": "用户名需为 4~20 位字母、数字或下划线",
+            "error_code": "invalid_username",
+        }, False
+    if len(pwd) < 6 or len(pwd) > 32 or any(ch.isspace() for ch in pwd):
+        return {
+            "ok": False,
+            "error": "密码需为 6~32 位且不能包含空格",
+            "error_code": "invalid_password",
+        }, False
+
+    auth_cfg = cfg.get("auth", {})
+    interval = int(auth_cfg.get("quick_login_interval_seconds", 60))
+    hourly_max = int(auth_cfg.get("quick_login_hourly_max", 20))
+    ip_interval = int(auth_cfg.get("quick_login_ip_interval_seconds", 10))
+    ip_hourly_max = int(auth_cfg.get("quick_login_ip_hourly_max", 30))
+    grace_days = int(auth_cfg.get("login_grace_days", 7))
+
+    reason = auth.rate_limit_ip(client_ip, ip_interval, ip_hourly_max) or auth.rate_limit(
+        install_id, interval, hourly_max
+    )
+    if reason is not None:
+        return {"ok": False, "error": reason, "error_code": "rate_limited"}, False
+
+    token = auth.gen_token()
+    cur = c.execute(
+        """
+        INSERT INTO pcc_users (username, password, token, install_id)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (username) DO NOTHING
+        RETURNING username
+        """,
+        (uname, pwd, token, install_id),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return {
+            "ok": False,
+            "error": "该用户名已被占用，请换一个",
+            "error_code": "username_taken",
+        }, False
+
+    auth.mark_success(install_id, client_ip)
+    return {
+        "ok": True,
+        "reused": False,
+        "username": row[0],
+        "password": pwd,
+        "token": token,
+        "phone": "",
+        "license_expires_at": None,
+        "license_expires_at_ms": 0,
+        "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
+    }, True
+
+
 @router.post("/auth/register")
-def register_account(body: QuickLoginIn, request: Request):
-    """注册新账号并登录（每次都新建，不复用旧账号；受设备 + IP 限流保护）。"""
+def register_account(body: RegisterIn, request: Request):
+    """注册新账号并登录：
+    - 未传 username/password（兼容老包与快速注册）：系统随机生成 userXXXX / pwdXXXX；
+    - 传入 username/password（自定义注册）：校验格式并防重名，受设备 + IP 限流保护。
+    """
     cfg = request.app.state.config
     pool = request.app.state.pool
     install_id = body.install_id.strip()
     client_ip = (request.client.host if request.client else "") or ""
 
+    is_custom = bool(body.username.strip() or body.password.strip())
     with pool.connection() as c:
-        res, _ok = _create_new_user(c, install_id, client_ip, cfg)
+        if is_custom:
+            res, _ok = _create_custom_user(c, install_id, body.username, body.password, client_ip, cfg)
+        else:
+            res, _ok = _create_new_user(c, install_id, client_ip, cfg)
     return res
 
 
