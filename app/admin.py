@@ -295,6 +295,43 @@ def devices_page(request: Request, page: int = 1, q: str = ""):
     )
 
 
+def _games_json_to_lines(raw_json: str) -> str:
+    """将数据库存储的 games_json 转为后台「每行一个游戏名」的防呆多行文本。"""
+    raw = (raw_json or "").strip()
+    if not raw:
+        return ""
+    try:
+        arr = json.loads(raw)
+        if not isinstance(arr, list):
+            return ""
+        names: list[str] = []
+        for item in arr:
+            if isinstance(item, str) and item.strip():
+                names.append(item.strip())
+            elif isinstance(item, dict):
+                nm = str(item.get("name", "") or "").strip()
+                if nm:
+                    names.append(nm)
+        return "\n".join(names)
+    except Exception:
+        return ""
+
+
+def _lines_to_games_json(raw_lines: str) -> str:
+    """将管理员输入的「每行一个游戏名」去空去重，转为标准 JSON 数组。"""
+    seen: set[str] = set()
+    items: list[dict[str, str]] = []
+    for line in (raw_lines or "").splitlines():
+        name = line.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        items.append({"name": name})
+    if not items:
+        return ""
+    return json.dumps(items, ensure_ascii=False)
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     if (r := require_login(request)) is not None:
@@ -308,70 +345,98 @@ def settings_page(request: Request):
         api_base_url=vals["api_base_url"],
         seed_version=vals["seed_version"],
         seed_patch_json=vals["seed_patch_json"],
-        games_json=vals["games_json"],
+        games_lines=_games_json_to_lines(vals["games_json"]),
         error="",
-        saved=bool(request.query_params.get("saved")),
+        error_section="",
+        saved_section=request.query_params.get("saved", ""),
     )
 
 
 @router.post("/settings")
 def settings_save(
     request: Request,
+    section: str = Form("all"),
     kefu_qq: str = Form(""),
     notice: str = Form(""),
     api_base_url: str = Form(""),
     seed_version: str = Form("1"),
     seed_patch_json: str = Form(""),
-    games_json: str = Form(""),
+    games_lines: str | None = Form(None),
+    games_json: str | None = Form(None),
 ):
     if (r := require_login(request)) is not None:
         return r
-    clean_url = api_base_url.strip().rstrip("/")
-    clean_sv = seed_version.strip() or "1"
-    clean_patch = seed_patch_json.strip()
-    clean_games = games_json.strip()
+    pool = request.app.state.pool
+    cur = settings.get_app_settings(pool, request.app.state.config)
+
+    # 按分区独立保存，避免日常改公告误触进阶热更新或灾备地址
+    sec = (section or "all").strip()
+    updates: dict[str, str] = {}
     err = ""
-    if clean_url and not (clean_url.startswith("http://") or clean_url.startswith("https://")):
-        err = "灾备服务端地址必须以 http:// 或 https:// 开头"
-    if not err and clean_patch:
+
+    next_kefu = kefu_qq.strip() if sec in ("all", "basic") else cur["kefu_qq"]
+    next_notice = notice.strip() if sec in ("all", "basic") else cur["notice"]
+    next_url = api_base_url.strip().rstrip("/") if sec in ("all", "failover") else cur["api_base_url"]
+    next_sv = (seed_version.strip() or "1") if sec in ("all", "hotfix") else cur["seed_version"]
+    next_patch = seed_patch_json.strip() if sec in ("all", "hotfix") else cur["seed_patch_json"]
+    if sec in ("all", "hotfix"):
+        if games_lines is not None:
+            next_games_lines = games_lines
+            next_games_json = _lines_to_games_json(games_lines)
+        else:
+            next_games_json = (games_json or "").strip()
+            next_games_lines = _games_json_to_lines(next_games_json)
+    else:
+        next_games_json = cur["games_json"]
+        next_games_lines = _games_json_to_lines(cur["games_json"])
+
+    if sec in ("all", "failover") and next_url:
+        if not (next_url.startswith("http://") or next_url.startswith("https://")):
+            err = "灾备服务端地址必须以 http:// 或 https:// 开头"
+
+    if not err and sec in ("all", "hotfix") and next_patch:
         try:
-            obj = json.loads(clean_patch)
+            obj = json.loads(next_patch)
             if not isinstance(obj, dict):
-                err = "识别配置补丁（seed_patch_json）必须是 JSON 对象 {...}"
+                err = "识别配置补丁必须是 JSON 对象 {...}"
         except Exception as exc:
             err = f"识别配置补丁 JSON 格式错误：{exc}"
-    if not err and clean_games:
+
+    if not err and sec in ("all", "hotfix") and games_lines is None and next_games_json:
         try:
-            arr = json.loads(clean_games)
+            arr = json.loads(next_games_json)
             if not isinstance(arr, list):
-                err = "扩展游戏目录（games_json）必须是 JSON 数组 [...]"
+                err = "扩展游戏目录必须是 JSON 数组 [...]"
         except Exception as exc:
             err = f"扩展游戏目录 JSON 格式错误：{exc}"
+
     if err:
         return render(
             request,
             "settings.html",
-            kefu_qq=kefu_qq.strip(),
-            notice=notice.strip(),
-            api_base_url=clean_url,
-            seed_version=clean_sv,
-            seed_patch_json=clean_patch,
-            games_json=clean_games,
+            kefu_qq=next_kefu,
+            notice=next_notice,
+            api_base_url=next_url,
+            seed_version=next_sv,
+            seed_patch_json=next_patch,
+            games_lines=next_games_lines,
             error=err,
-            saved=False,
+            error_section=sec,
+            saved_section="",
         )
-    settings.set_app_settings(
-        request.app.state.pool,
-        {
-            "kefu_qq": kefu_qq.strip(),
-            "notice": notice.strip(),
-            "api_base_url": clean_url,
-            "seed_version": clean_sv,
-            "seed_patch_json": clean_patch,
-            "games_json": clean_games,
-        },
-    )
-    return RedirectResponse("/admin/settings?saved=1", status_code=303)
+
+    if sec in ("all", "basic"):
+        updates["kefu_qq"] = next_kefu
+        updates["notice"] = next_notice
+    if sec in ("all", "hotfix"):
+        updates["seed_version"] = next_sv
+        updates["seed_patch_json"] = next_patch
+        updates["games_json"] = next_games_json
+    if sec in ("all", "failover"):
+        updates["api_base_url"] = next_url
+
+    settings.set_app_settings(pool, updates)
+    return RedirectResponse(f"/admin/settings?saved={sec or '1'}", status_code=303)
 
 
 @router.get("/feedbacks", response_class=HTMLResponse)

@@ -4,50 +4,182 @@
 <div class="page-head">
   <div>
     <h1>系统设置</h1>
-    <p class="page-sub">修改后立即生效，客户端拉取 /api/v1/app/config 自动同步</p>
+    <p class="page-sub">按使用频率分区保存，修改后立即生效，无需重启服务</p>
   </div>
 </div>
 
-{% if saved %}
-<div class="notice">设置已保存并立即生效，无需重启服务</div>
+{% if saved_section %}
+<div class="notice">
+  {% if saved_section == 'basic' %}日常运营设置已保存并立即生效
+  {% elif saved_section == 'hotfix' %}云端热更新配置已保存并立即生效
+  {% elif saved_section == 'failover' %}灾备服务端地址已保存并立即生效
+  {% else %}设置已保存并立即生效{% endif %}
+</div>
 {% endif %}
+
 {% if error %}
 <div class="notice" style="border-color:var(--danger);color:var(--danger);background:var(--danger-soft)">{{ error }}</div>
 {% endif %}
 
-<div class="panel" style="max-width:720px">
-  <form method="post" action="/admin/settings">
-    <div class="field">
-      <label for="kefu_qq">客服 QQ</label>
-      <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789" style="width:100%;max-width:360px">
-      <div class="field-hint">点击「联系客服」时复制的号码；留空则客户端兜底复制 123456789</div>
+<div class="settings-stack">
+
+  <!-- 卡片 1：日常运营（高频、零风险） -->
+  <div class="panel">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title">日常运营</h2>
+        <p class="section-desc">修改客服与公告，随时可改，不影响下方技术配置</p>
+      </div>
+      <span class="tag t-ok">随时可改</span>
     </div>
-    <div class="field">
-      <label for="notice">公告内容</label>
-      <textarea id="notice" name="notice" rows="4" placeholder="输入公告内容，留空显示「暂无公告」">{{ notice }}</textarea>
-      <div class="field-hint">展示在客户端「我的」页顶部公告卡片；内容变更时客户端「我的」Tab 自动亮起小红点</div>
+    <form method="post" action="/admin/settings">
+      <input type="hidden" name="section" value="basic">
+      <div class="field">
+        <label for="kefu_qq">客服 QQ</label>
+        <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789" style="width:100%;max-width:320px">
+        <div class="field-hint">用户点「联系客服」时自动复制的号码；留空时客户端兜底复制 123456789</div>
+      </div>
+      <div class="field">
+        <label for="notice">公告内容</label>
+        <textarea id="notice" name="notice" rows="4" placeholder="输入公告内容，留空则客户端显示「暂无公告」">{{ notice }}</textarea>
+        <div class="field-hint">展示在客户端「我的」页顶部；内容变更时客户端「我的」Tab 自动亮起小红点提醒</div>
+      </div>
+      <button class="primary" type="submit">保存日常设置</button>
+    </form>
+  </div>
+
+  <!-- 卡片 2：云端热更新（按需使用，防呆设计） -->
+  <div class="panel">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title">云端热更新</h2>
+        <p class="section-desc">免发新包即可扩充游戏搜索词库，或微调识别参数</p>
+      </div>
+      <span class="tag t-used">当前版本 v{{ seed_version }}</span>
     </div>
-    <div class="field">
-      <label for="api_base_url">灾备服务端地址（可选）</label>
-      <input id="api_base_url" name="api_base_url" value="{{ api_base_url }}" placeholder="平时留空；迁服前填新地址如 http://x.x.x.x:8800" style="width:100%;max-width:480px">
-      <div class="field-hint">客户端收到非空地址会自动持久化切换；若新地址连续不可达会自动回落内置默认地址</div>
+
+    <div class="safe-callout">
+      <strong>安全说明：</strong>以下内容全部<strong>留空即可安全运行</strong>（App 始终内置完整离线配置作兜底）。每次改动下方内容后，请把版本号点一次 <strong>+1</strong> 再保存，客户端下次启动就会自动同步。
     </div>
-    <div class="field">
-      <label for="seed_version">云端识别配置版本号（seed_version）</label>
-      <input id="seed_version" name="seed_version" value="{{ seed_version }}" placeholder="默认 1，每次修改下方热更新 JSON 请递增如 2、3" style="width:100%;max-width:240px">
-      <div class="field-hint">客户端对比版本号，有变化时自动拉取 /api/v1/seed/config 热更新本地配置</div>
-    </div>
-    <div class="field">
-      <label for="seed_patch_json">识别配置补丁 JSON（direction_config 覆盖项，可选）</label>
-      <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='留空不覆盖；示例：{"game_key": "..."}'>{{ seed_patch_json }}</textarea>
-      <div class="field-hint">JSON 对象，键值对会增量合并到客户端 direction_config SharedPreferences 中</div>
-    </div>
-    <div class="field">
-      <label for="games_json">云端扩展游戏目录 JSON（可选）</label>
-      <textarea id="games_json" name="games_json" rows="5" class="mono" placeholder='留空仅用内置目录；示例：[{"name":"某扑克","platform":"某扑克","mode":0,"aliases":"关键词"}]'>{{ games_json }}</textarea>
-      <div class="field-hint">JSON 数组，mode: 0=斗地主 / 1=跑得快 / 3=掼蛋 / 4=自定义 / -1=多玩法平台</div>
-    </div>
-    <button class="primary" type="submit">保存设置</button>
-  </form>
+
+    <form method="post" action="/admin/settings">
+      <input type="hidden" name="section" value="hotfix">
+
+      <div class="field">
+        <label for="seed_version">热更新版本号</label>
+        <div class="inline-control">
+          <input id="seed_version" name="seed_version" value="{{ seed_version }}" class="mono" style="width:120px">
+          <button type="button" id="btn-bump-seed">+1</button>
+        </div>
+        <div class="field-hint">只要版本号变大，客户端就会自动拉取最新扩展游戏与识别补丁</div>
+      </div>
+
+      <div class="field">
+        <label for="games_lines">云端扩展游戏目录（每行写一个游戏名）</label>
+        <textarea id="games_lines" name="games_lines" rows="5" placeholder="每行填一个游戏名称即可，例如：&#10;微乐够级&#10;博雅斗地主&#10;边锋双扣">{{ games_lines }}</textarea>
+        <div class="field-hint">不需要写任何 JSON 或引号，后台会自动转换格式；保存后客户端首页搜索框即可搜到这些游戏</div>
+      </div>
+
+      <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'hotfix' else '' }}>
+        <summary>
+          <span>进阶 · 识别配置补丁（仅修复某款游戏识别偏移时使用）</span>
+          <span class="fold-chevron">▾</span>
+        </summary>
+        <div class="field" style="margin-bottom:0">
+          <label for="seed_patch_json">direction_config 增量补丁（JSON 对象，可选）</label>
+          <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='平时请留空；需要覆盖指定键时填入 JSON 对象'>{{ seed_patch_json }}</textarea>
+          <div class="field-actions">
+            <button type="button" id="btn-format-patch">校验并格式化 JSON</button>
+            <span id="patch-status" class="field-status">留空不覆盖内置识别配置</span>
+          </div>
+          <div class="example-box">格式示例（只覆盖你要改的键，不会删掉其他内置配置）：
+{
+  "direction_schemas": "[...从真机导出的最新 JSON 字符串...]"
+}</div>
+        </div>
+      </details>
+
+      <div style="margin-top:16px">
+        <button class="primary" type="submit">保存热更新配置</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 卡片 3：服务端地址灾备（低频高危，默认收起） -->
+  <div class="panel">
+    <details class="fold-block" style="margin-top:0;border:none;padding:0;background:transparent" {{ 'open' if api_base_url or error_section == 'failover' else '' }}>
+      <summary style="padding:0;margin:0;border:none">
+        <div>
+          <div class="section-title">高级 · 服务端地址灾备</div>
+          <div class="section-desc">准备更换服务器 IP 时才需要填写，平时请保持留空</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          {% if api_base_url %}
+          <span class="tag t-warn">已启用自定义地址</span>
+          {% else %}
+          <span class="tag t-used">未启用</span>
+          {% endif %}
+          <span class="fold-chevron">▾</span>
+        </div>
+      </summary>
+
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hairline)">
+        <div class="safe-callout">
+          <strong>防变砖保障：</strong>客户端收到非空地址后会切到新地址；如果新地址填错或服务器连不上，客户端会自动回落内置默认地址重试，不会导致老包失联。
+        </div>
+        <form method="post" action="/admin/settings">
+          <input type="hidden" name="section" value="failover">
+          <div class="field">
+            <label for="api_base_url">新服务端地址（以 http:// 或 https:// 开头）</label>
+            <input id="api_base_url" name="api_base_url" value="{{ api_base_url }}" class="mono" placeholder="例如 http://1.15.42.244:8800（留空表示恢复默认）" style="width:100%;max-width:460px">
+            <div class="field-hint">迁服前把新服务器地址填在这里，等老版本客户端陆续同步后再停旧服</div>
+          </div>
+          <button class="primary" type="submit">保存灾备地址</button>
+        </form>
+      </div>
+    </details>
+  </div>
+
 </div>
+
+<script>
+(function () {
+  var bumpBtn = document.getElementById('btn-bump-seed');
+  var verInput = document.getElementById('seed_version');
+  if (bumpBtn && verInput) {
+    bumpBtn.addEventListener('click', function () {
+      var n = parseInt((verInput.value || '').trim(), 10);
+      verInput.value = isNaN(n) ? '2' : String(n + 1);
+    });
+  }
+
+  var fmtBtn = document.getElementById('btn-format-patch');
+  var patchTa = document.getElementById('seed_patch_json');
+  var patchSt = document.getElementById('patch-status');
+  if (fmtBtn && patchTa && patchSt) {
+    fmtBtn.addEventListener('click', function () {
+      var raw = (patchTa.value || '').trim();
+      if (!raw) {
+        patchSt.textContent = '当前为空（不覆盖内置配置，安全）';
+        patchSt.className = 'field-status ok';
+        return;
+      }
+      try {
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          patchSt.textContent = '格式错误：最外层必须是 JSON 对象 { ... }';
+          patchSt.className = 'field-status err';
+          return;
+        }
+        patchTa.value = JSON.stringify(parsed, null, 2);
+        patchSt.textContent = 'JSON 格式合法（共 ' + Object.keys(parsed).length + ' 个配置键）';
+        patchSt.className = 'field-status ok';
+      } catch (e) {
+        patchSt.textContent = 'JSON 语法错误：' + e.message;
+        patchSt.className = 'field-status err';
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

@@ -223,6 +223,37 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
         self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "3")
 
+        # 分区保存：hotfix 使用多行纯文本 games_lines 自动转 JSON 且去空去重，不影响日常运营和灾备地址
+        hf = self.client.request(
+            "POST",
+            "/admin/settings",
+            form_body={
+                "section": "hotfix",
+                "seed_version": "4",
+                "games_lines": " 微乐够级 \n\n博雅斗地主\n微乐够级\n",
+                "seed_patch_json": "",
+            },
+        )
+        self.assertEqual(hf.status_code, 303)
+        self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "4")
+        self.assertEqual(
+            self.pool.db.app_settings["games_json"]["value"],
+            '[{"name": "微乐够级"}, {"name": "博雅斗地主"}]',
+        )
+        self.assertEqual(self.pool.db.app_settings["kefu_qq"]["value"], "123")
+        self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
+
+        # 分区保存：basic 只改公告，不动热更新与灾备地址
+        bs = self.client.request(
+            "POST",
+            "/admin/settings",
+            form_body={"section": "basic", "kefu_qq": "999", "notice": "仅改公告"},
+        )
+        self.assertEqual(bs.status_code, 303)
+        self.assertEqual(self.pool.db.app_settings["notice"]["value"], "仅改公告")
+        self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "4")
+        self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
+
 
 if __name__ == "__main__":
     unittest.main()
