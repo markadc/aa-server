@@ -191,7 +191,7 @@ def app_config(request: Request):
 
 @router.get("/seed/config")
 def seed_config(request: Request):
-    """下发云端识别配置补丁（direction_config）、新增游戏（games）与隐藏默认游戏（hidden_games）。"""
+    """下发云端完整有序热门游戏列表（hot_games）、隐藏列表（hidden_games）与识别补丁（direction_config）。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, cfg)
@@ -204,29 +204,16 @@ def seed_config(request: Request):
                 direction_patch = {str(k): str(v) for k, v in parsed.items()}
         except Exception:
             direction_patch = {}
-    games: list = []
-    raw_games = (vals.get("games_json") or "").strip()
-    if raw_games:
-        try:
-            parsed_g = json.loads(raw_games)
-            if isinstance(parsed_g, list):
-                games = parsed_g
-        except Exception:
-            games = []
-    hidden_games: list[str] = []
-    raw_hidden = (vals.get("hidden_games_json") or "").strip()
-    if raw_hidden:
-        try:
-            parsed_h = json.loads(raw_hidden)
-            if isinstance(parsed_h, list):
-                hidden_games = [str(x).strip() for x in parsed_h if str(x).strip()]
-        except Exception:
-            hidden_games = []
+    hot_games, hidden_games, _ = settings.resolve_game_catalog(vals)
+    # 同时保留兼容字段 games（供老包读取新增项）
+    default_set = set(settings.DEFAULT_GAMES)
+    compat_games = [{"name": n} for n in hot_games if n not in default_set]
     return {
         "ok": True,
         "seed_version": vals.get("seed_version") or "1",
         "direction_config": direction_patch,
-        "games": games,
+        "hot_games": hot_games,
+        "games": compat_games,
         "hidden_games": hidden_games,
     }
 

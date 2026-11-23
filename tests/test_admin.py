@@ -239,12 +239,29 @@ class TestAdminPanel(unittest.TestCase):
         seed2 = self.client.request("GET", "/api/v1/seed/config").json()
         self.assertEqual(seed2["hidden_games"], [])
 
-        # 一键还原默认（清空所有自定义新增与隐藏）
-        rst = self.client.request("POST", "/admin/settings/games/reset")
-        self.assertEqual(rst.status_code, 303)
+        # 一键还原默认（清空所有自定义新增与隐藏，支持 JSON 异步返回）
+        rst = self.client.request("POST", "/admin/settings/games/reset", headers={"Accept": "application/json"})
+        self.assertEqual(rst.status_code, 200)
+        self.assertFalse(rst.json()["is_customized"])
         seed3 = self.client.request("GET", "/api/v1/seed/config").json()
         self.assertEqual(seed3["games"], [])
         self.assertEqual(seed3["hidden_games"], [])
+        self.assertEqual(seed3["hot_games"][0], "欢乐斗地主（腾讯）")
+
+        # 异步批量保存自定义排序与隐藏列表
+        save = self.client.request(
+            "POST",
+            "/admin/settings/games/save",
+            json_body={
+                "hot_games": ["微乐斗地主", "大掼蛋（腾讯）", "博雅斗地主"],
+                "hidden_games": ["心悦众娱"],
+            },
+        )
+        self.assertEqual(save.status_code, 200)
+        self.assertTrue(save.json()["ok"])
+        seed4 = self.client.request("GET", "/api/v1/seed/config").json()
+        self.assertEqual(seed4["hot_games"], ["微乐斗地主", "大掼蛋（腾讯）", "博雅斗地主"])
+        self.assertEqual(seed4["hidden_games"], ["心悦众娱"])
 
         # 分区保存：basic 只改公告，不动灾备地址
         bs = self.client.request(

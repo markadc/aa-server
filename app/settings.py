@@ -13,6 +13,7 @@ MANAGED_KEYS = (
     "seed_version",
     "seed_patch_json",
     "games_json",
+    "hot_games_json",
     "hidden_games_json",
 )
 
@@ -23,6 +24,7 @@ DEFAULTS = {
     "seed_version": "1",
     "seed_patch_json": "",
     "games_json": "",
+    "hot_games_json": "",
     "hidden_games_json": "",
 }
 
@@ -63,6 +65,59 @@ def get_app_settings(pool: ConnectionPool, cfg: dict) -> dict[str, str]:
             if key in result:
                 result[key] = value or DEFAULTS.get(key, "")
     return result
+
+
+def resolve_game_catalog(vals: dict[str, str]) -> tuple[list[str], list[str], bool]:
+    """解析当前生效的完整有序热门游戏列表与隐藏列表。
+
+    返回 (hot_games, hidden_games, is_customized)：
+    - 若已保存过 hot_games_json，直接作为完整有序展示列表；
+    - 否则兼容旧版 games_json + DEFAULT_GAMES - hidden_games_json。
+    """
+    import json
+
+    def _parse_names(raw: str) -> list[str]:
+        s = (raw or "").strip()
+        if not s:
+            return []
+        try:
+            arr = json.loads(s)
+            if not isinstance(arr, list):
+                return []
+            out: list[str] = []
+            seen: set[str] = set()
+            for item in arr:
+                nm = item.strip() if isinstance(item, str) else str((item or {}).get("name", "") if isinstance(item, dict) else "").strip()
+                if nm and nm not in seen:
+                    seen.add(nm)
+                    out.append(nm)
+            return out
+        except Exception:
+            return []
+
+    hidden = _parse_names(vals.get("hidden_games_json", ""))
+    hidden_set = set(hidden)
+
+    raw_hot = (vals.get("hot_games_json") or "").strip()
+    if raw_hot:
+        hot = [n for n in _parse_names(raw_hot) if n not in hidden_set]
+        is_custom = (tuple(hot) != DEFAULT_GAMES) or bool(hidden)
+        return hot, hidden, is_custom
+
+    # 兼容旧数据：新增 games_json 排前 + 未隐藏的 DEFAULT_GAMES
+    added = _parse_names(vals.get("games_json", ""))
+    hot = []
+    seen = set()
+    for n in added:
+        if n not in hidden_set and n not in seen:
+            seen.add(n)
+            hot.append(n)
+    for n in DEFAULT_GAMES:
+        if n not in hidden_set and n not in seen:
+            seen.add(n)
+            hot.append(n)
+    is_custom = bool(added) or bool(hidden)
+    return hot, hidden, is_custom
 
 
 def set_app_settings(pool: ConnectionPool, updates: dict[str, str]) -> None:

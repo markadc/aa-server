@@ -1172,6 +1172,180 @@
     color: var(--accent);
   }
 
+  /* Segmented tabs & sortable game list */
+  .seg-tabs {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 9px;
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    gap: 2px;
+    margin-bottom: 16px;
+  }
+
+  .seg-tab {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--fg-2);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 140ms var(--ease), color 140ms var(--ease);
+  }
+
+  .seg-tab:hover {
+    color: var(--fg);
+  }
+
+  .seg-tab.active {
+    background: var(--raised);
+    color: var(--fg);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  }
+
+  .game-list-box {
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    background: var(--bg);
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  .game-sort-row,
+  .game-mgr-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--hairline);
+    transition: background 120ms var(--ease);
+  }
+
+  .game-sort-row:last-child,
+  .game-mgr-row:last-child {
+    border-bottom: none;
+  }
+
+  .game-sort-row {
+    cursor: grab;
+    user-select: none;
+  }
+
+  .game-sort-row:hover,
+  .game-mgr-row:hover {
+    background: var(--tr-hover);
+  }
+
+  .game-sort-row.dragging {
+    opacity: 0.45;
+    background: var(--raised);
+  }
+
+  .game-sort-row.drag-over {
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+
+  .drag-handle {
+    color: var(--fg-3);
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .sort-index {
+    width: 24px;
+    text-align: right;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-3);
+    flex-shrink: 0;
+  }
+
+  .sort-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sort-name.is-hidden {
+    color: var(--fg-3);
+    text-decoration: line-through;
+  }
+
+  .row-mini-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .mini-btn {
+    height: 26px;
+    padding: 0 8px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--fg-2);
+    cursor: pointer;
+    transition: background 120ms var(--ease), color 120ms var(--ease), border-color 120ms var(--ease);
+  }
+
+  .mini-btn:hover:not(:disabled) {
+    background: var(--btn-hover);
+    color: var(--fg);
+    border-color: var(--hairline-strong);
+  }
+
+  .mini-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  .mini-btn.danger:hover:not(:disabled) {
+    background: var(--danger-soft);
+    color: var(--danger);
+    border-color: transparent;
+  }
+
+  .mini-btn.accent:hover:not(:disabled) {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: transparent;
+  }
+
+  .game-bar-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .game-filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .game-filter-bar input {
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .game-pane-hidden {
+    display: none;
+  }
+
   /* Responsive */
   @media (max-width: 960px) {
     .stats-grid {
@@ -1325,6 +1499,7 @@
     modal.setAttribute('aria-hidden', 'false');
     mCancel.focus();
   }
+  window.pccConfirm = openConfirm;
 
   function closeConfirm() {
     modal.classList.remove('open');

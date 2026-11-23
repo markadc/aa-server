@@ -48,61 +48,62 @@
     </form>
   </div>
 
-  <!-- 卡片 2：搜索框游戏目录（可视化增删 + 还原默认） -->
-  <div class="panel" id="game-catalog" data-preserve-scroll>
+  <!-- 卡片 2：搜索框游戏目录（双 Tab：调整顺序 / 管理列表，全程异步无刷新） -->
+  <div class="panel" id="game-catalog">
     <div class="section-head">
       <div>
-        <h2 class="section-title">搜索框游戏目录</h2>
-        <p class="section-desc">当前共 {{ visible_games|length }} 款（与 App「选择游戏」弹窗 1:1 对应，用户点「刷新」立即生效）</p>
+        <h2 class="section-title">热门游戏目录</h2>
+        <p class="section-desc" id="gc-summary">当前展示 {{ visible_games|length }} 款，与 App「选择游戏」列表及顺序完全一致</p>
       </div>
-      {% if is_customized %}
-      <form method="post" action="/admin/settings/games/reset">
-        <button type="submit" class="ghost" data-confirm="将清除所有新增与隐藏的游戏记录，恢复为出厂默认的 20 款热门游戏" data-confirm-title="还原默认游戏目录" data-confirm-ok="还原默认">还原默认</button>
-      </form>
-      {% else %}
-      <span class="tag t-used">出厂默认</span>
-      {% endif %}
-    </div>
-
-    {% if saved_section == 'games' %}
-    <div class="notice" style="margin-bottom:14px">游戏目录已更新，用户在 App「选择游戏」里点「刷新」即可同步</div>
-    {% elif saved_section == 'games_reset' %}
-    <div class="notice" style="margin-bottom:14px">已还原为出厂默认游戏目录</div>
-    {% endif %}
-
-    <form class="game-add-bar" method="post" action="/admin/settings/games/add" data-game-add-form>
-      <input id="game-add-input" name="name" placeholder="输入要添加的游戏名称，例如：微乐够级" maxlength="32" required>
-      <button class="primary" type="submit">添加游戏</button>
-    </form>
-
-    <div class="game-chip-list">
-      {% for g in visible_games %}
-      <div class="game-chip {{ 'is-custom' if g.custom else '' }}">
-        <span>{{ g.name }}</span>
-        {% if g.custom %}<span class="game-chip-badge">新增</span>{% endif %}
-        <form method="post" action="/admin/settings/games/delete" style="display:inline">
-          <input type="hidden" name="name" value="{{ g.name }}">
-          <button class="game-chip-del" type="submit" title="{{ '删除此新增游戏' if g.custom else '从搜索框隐藏此游戏' }}">×</button>
-        </form>
-      </div>
-      {% else %}
-      <span class="muted" style="font-size:13px">当前列表为空，可点右上角「还原默认」或上方添加游戏</span>
-      {% endfor %}
-    </div>
-
-    {% if hidden_games %}
-    <div class="game-hidden-box">
-      <div class="game-hidden-title">已隐藏的默认游戏（{{ hidden_games|length }} 款，点击可恢复展示）：</div>
-      <div class="game-chip-list">
-        {% for h in hidden_games %}
-        <form method="post" action="/admin/settings/games/restore" style="display:inline">
-          <input type="hidden" name="name" value="{{ h }}">
-          <button class="game-chip-restore" type="submit" title="点击恢复显示">+ {{ h }}</button>
-        </form>
-        {% endfor %}
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="tag t-used" id="gc-default-tag" {% if is_customized %}style="display:none"{% endif %}>出厂默认</span>
+        <button type="button" class="ghost" id="gc-reset-btn" {% if not is_customized %}style="display:none"{% endif %}>还原默认</button>
       </div>
     </div>
-    {% endif %}
+
+    <div class="seg-tabs" role="tablist" aria-label="游戏目录操作模式">
+      <button type="button" class="seg-tab active" data-gc-tab="sort" role="tab" aria-selected="true">调整顺序</button>
+      <button type="button" class="seg-tab" data-gc-tab="manage" role="tab" aria-selected="false">管理列表（新增 / 隐藏）</button>
+    </div>
+
+    <!-- Tab 1：只管排序（拖拽 + 置顶/上下移） -->
+    <div id="gc-pane-sort">
+      <div class="field-hint" style="margin:0 0 10px">拖动左侧手柄或点击右侧按钮调整顺序，排在前面的游戏会优先显示在 App 弹窗顶部；排完点「保存排序」</div>
+      <div class="game-list-box" id="gc-sort-list"></div>
+      <div class="game-bar-foot">
+        <span class="field-status" id="gc-sort-status">当前顺序已与服务端同步</span>
+        <div style="display:flex;gap:8px">
+          <button type="button" id="gc-sort-revert" style="display:none">撤销调整</button>
+          <button type="button" class="primary" id="gc-sort-save" disabled>保存排序</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2：只管列表（新增 / 隐藏 / 恢复 / 删除自定义） -->
+    <div id="gc-pane-manage" class="game-pane-hidden">
+      <div class="game-add-bar" style="margin-bottom:12px">
+        <input id="gc-add-input" placeholder="输入要添加的游戏名，如：微乐够级" maxlength="32">
+        <select id="gc-add-pos" aria-label="插入位置" style="width:auto">
+          <option value="top">插到顶部</option>
+          <option value="bottom">插到末尾</option>
+        </select>
+        <button type="button" class="primary" id="gc-add-btn">添加游戏</button>
+      </div>
+
+      <div class="game-filter-bar">
+        <input id="gc-filter-q" placeholder="搜索列表中的游戏…">
+        <select id="gc-filter-state" aria-label="显示筛选" style="width:auto">
+          <option value="all">全部状态</option>
+          <option value="visible">展示中</option>
+          <option value="hidden">已隐藏</option>
+        </select>
+      </div>
+
+      <div class="game-list-box" id="gc-mgr-list" style="max-height:320px"></div>
+      <div class="game-bar-foot">
+        <span class="field-status" id="gc-mgr-status">操作立即生效，用户在 App 点「刷新」即可同步</span>
+      </div>
+    </div>
 
     <!-- 进阶识别配置补丁默认收起 -->
     <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'patch' else '' }}>
@@ -166,39 +167,420 @@
 
 </div>
 
+<script id="gc-init-data" type="application/json">
+{
+  "hot": {{ hot_games_data_json | safe }},
+  "hidden": {{ hidden_games_data_json | safe }},
+  "defaults": {{ default_games_data_json | safe }},
+  "customized": {{ 'true' if is_customized else 'false' }}
+}
+</script>
+
 <script>
 (function () {
-  // 操作「搜索框游戏目录」后原地保持滚动位置，不跳回页面顶部
-  var KEY_SCROLL = 'pcc_settings_scroll_y';
-  var KEY_FOCUS_ADD = 'pcc_settings_focus_add';
-  try {
-    var savedY = sessionStorage.getItem(KEY_SCROLL);
-    if (savedY !== null) {
-      sessionStorage.removeItem(KEY_SCROLL);
-      var y = parseInt(savedY, 10);
-      if (!isNaN(y)) {
-        window.scrollTo({ top: y, behavior: 'instant' });
-      }
-    }
-    if (sessionStorage.getItem(KEY_FOCUS_ADD) === '1') {
-      sessionStorage.removeItem(KEY_FOCUS_ADD);
-      var addInp = document.getElementById('game-add-input');
-      if (addInp) addInp.focus({ preventScroll: true });
-    }
-  } catch (e) {}
+  var initEl = document.getElementById('gc-init-data');
+  if (!initEl) return;
+  var initData = JSON.parse(initEl.textContent || '{}');
+  var DEFAULT_SET = new Set(initData.defaults || []);
 
-  var gameCard = document.getElementById('game-catalog');
-  if (gameCard) {
-    gameCard.addEventListener('submit', function (e) {
-      try {
-        sessionStorage.setItem(KEY_SCROLL, String(window.scrollY || document.documentElement.scrollTop || 0));
-        if (e.target && e.target.hasAttribute('data-game-add-form')) {
-          sessionStorage.setItem(KEY_FOCUS_ADD, '1');
+  var savedHot = (initData.hot || []).slice();
+  var savedHidden = (initData.hidden || []).slice();
+  var draftHot = savedHot.slice();
+  var isCustomized = !!initData.customized;
+
+  var summaryEl = document.getElementById('gc-summary');
+  var defaultTag = document.getElementById('gc-default-tag');
+  var resetBtn = document.getElementById('gc-reset-btn');
+  var sortList = document.getElementById('gc-sort-list');
+  var sortStatus = document.getElementById('gc-sort-status');
+  var sortSaveBtn = document.getElementById('gc-sort-save');
+  var sortRevertBtn = document.getElementById('gc-sort-revert');
+
+  var addInput = document.getElementById('gc-add-input');
+  var addPos = document.getElementById('gc-add-pos');
+  var addBtn = document.getElementById('gc-add-btn');
+  var filterQ = document.getElementById('gc-filter-q');
+  var filterState = document.getElementById('gc-filter-state');
+  var mgrList = document.getElementById('gc-mgr-list');
+  var mgrStatus = document.getElementById('gc-mgr-status');
+
+  var toastEl = document.getElementById('copy-toast');
+  var toastTimer = null;
+  function notify(msg) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 1800);
+  }
+
+  function isSortDirty() {
+    if (draftHot.length !== savedHot.length) return true;
+    for (var i = 0; i < draftHot.length; i++) {
+      if (draftHot[i] !== savedHot[i]) return true;
+    }
+    return false;
+  }
+
+  function updateHeader() {
+    var hiddenPart = savedHidden.length ? ('，已隐藏 ' + savedHidden.length + ' 款') : '';
+    summaryEl.textContent = '当前展示 ' + savedHot.length + ' 款' + hiddenPart + '，与 App「选择游戏」列表及顺序完全一致';
+    defaultTag.style.display = isCustomized ? 'none' : '';
+    resetBtn.style.display = isCustomized ? '' : 'none';
+  }
+
+  function updateSortBar() {
+    var dirty = isSortDirty();
+    sortSaveBtn.disabled = !dirty;
+    sortRevertBtn.style.display = dirty ? '' : 'none';
+    if (dirty) {
+      sortStatus.textContent = '顺序已修改，记得点击右侧「保存排序」';
+      sortStatus.className = 'field-status';
+    } else {
+      sortStatus.textContent = '当前顺序已与服务端同步';
+      sortStatus.className = 'field-status ok';
+    }
+  }
+
+  // ---- Tab 切换 ----
+  var tabs = document.querySelectorAll('[data-gc-tab]');
+  var paneSort = document.getElementById('gc-pane-sort');
+  var paneManage = document.getElementById('gc-pane-manage');
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      var target = t.getAttribute('data-gc-tab');
+      tabs.forEach(function (x) {
+        var on = x.getAttribute('data-gc-tab') === target;
+        x.classList.toggle('active', on);
+        x.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      paneSort.classList.toggle('game-pane-hidden', target !== 'sort');
+      paneManage.classList.toggle('game-pane-hidden', target !== 'manage');
+    });
+  });
+
+  // ---- 持久化到服务端（零刷新） ----
+  function persistCatalog(nextHot, nextHidden, okMsg, onDone) {
+    return fetch('/admin/settings/games/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify({ hot_games: nextHot, hidden_games: nextHidden })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res || !res.ok) {
+          notify((res && res.error) || '保存失败');
+          return false;
         }
-      } catch (err) {}
+        savedHot = (res.hot_games || []).slice();
+        savedHidden = (res.hidden_games || []).slice();
+        draftHot = savedHot.slice();
+        isCustomized = !!res.is_customized;
+        updateHeader();
+        renderSortList();
+        renderManageList();
+        if (okMsg) notify(okMsg);
+        if (onDone) onDone();
+        return true;
+      })
+      .catch(function () {
+        notify('网络异常，保存失败');
+        return false;
+      });
+  }
+
+  // ---- Tab 1：拖拽排序列表渲染 ----
+  var dragFromIdx = -1;
+  var gripSvg = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">'
+    + '<circle cx="5.5" cy="3.5" r="1.1"/><circle cx="10.5" cy="3.5" r="1.1"/>'
+    + '<circle cx="5.5" cy="8" r="1.1"/><circle cx="10.5" cy="8" r="1.1"/>'
+    + '<circle cx="5.5" cy="12.5" r="1.1"/><circle cx="10.5" cy="12.5" r="1.1"/></svg>';
+
+  function moveDraft(fromIdx, toIdx) {
+    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= draftHot.length || toIdx >= draftHot.length) return;
+    var item = draftHot.splice(fromIdx, 1)[0];
+    draftHot.splice(toIdx, 0, item);
+    renderSortList();
+  }
+
+  function renderSortList() {
+    sortList.innerHTML = '';
+    if (!draftHot.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.style.padding = '24px';
+      empty.textContent = '当前没有展示中的游戏，请切到「管理列表」添加或恢复';
+      sortList.appendChild(empty);
+      updateSortBar();
+      return;
+    }
+    draftHot.forEach(function (name, idx) {
+      var row = document.createElement('div');
+      row.className = 'game-sort-row';
+      row.draggable = true;
+      row.dataset.idx = String(idx);
+
+      var grip = document.createElement('span');
+      grip.className = 'drag-handle';
+      grip.innerHTML = gripSvg;
+      row.appendChild(grip);
+
+      var num = document.createElement('span');
+      num.className = 'sort-index';
+      num.textContent = String(idx + 1);
+      row.appendChild(num);
+
+      var label = document.createElement('span');
+      label.className = 'sort-name';
+      label.textContent = name;
+      row.appendChild(label);
+
+      if (!DEFAULT_SET.has(name)) {
+        var tag = document.createElement('span');
+        tag.className = 'game-chip-badge';
+        tag.textContent = '新增';
+        row.appendChild(tag);
+      }
+
+      var acts = document.createElement('div');
+      acts.className = 'row-mini-actions';
+
+      var btnTop = document.createElement('button');
+      btnTop.type = 'button';
+      btnTop.className = 'mini-btn';
+      btnTop.textContent = '置顶';
+      btnTop.disabled = idx === 0;
+      btnTop.addEventListener('click', function () { moveDraft(idx, 0); });
+
+      var btnUp = document.createElement('button');
+      btnUp.type = 'button';
+      btnUp.className = 'mini-btn';
+      btnUp.textContent = '↑';
+      btnUp.title = '上移一位';
+      btnUp.disabled = idx === 0;
+      btnUp.addEventListener('click', function () { moveDraft(idx, idx - 1); });
+
+      var btnDown = document.createElement('button');
+      btnDown.type = 'button';
+      btnDown.className = 'mini-btn';
+      btnDown.textContent = '↓';
+      btnDown.title = '下移一位';
+      btnDown.disabled = idx === draftHot.length - 1;
+      btnDown.addEventListener('click', function () { moveDraft(idx, idx + 1); });
+
+      acts.appendChild(btnTop);
+      acts.appendChild(btnUp);
+      acts.appendChild(btnDown);
+      row.appendChild(acts);
+
+      row.addEventListener('dragstart', function (e) {
+        dragFromIdx = idx;
+        row.classList.add('dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(idx));
+        }
+      });
+      row.addEventListener('dragend', function () {
+        dragFromIdx = -1;
+        row.classList.remove('dragging');
+        sortList.querySelectorAll('.drag-over').forEach(function (el) { el.classList.remove('drag-over'); });
+      });
+      row.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        if (dragFromIdx !== -1 && dragFromIdx !== idx) {
+          row.classList.add('drag-over');
+        }
+      });
+      row.addEventListener('dragleave', function () {
+        row.classList.remove('drag-over');
+      });
+      row.addEventListener('drop', function (e) {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (dragFromIdx !== -1 && dragFromIdx !== idx) {
+          moveDraft(dragFromIdx, idx);
+        }
+      });
+
+      sortList.appendChild(row);
+    });
+    updateSortBar();
+  }
+
+  sortSaveBtn.addEventListener('click', function () {
+    sortSaveBtn.disabled = true;
+    sortStatus.textContent = '保存中…';
+    persistCatalog(draftHot.slice(), savedHidden.slice(), '排序已保存，App 点「刷新」即同步');
+  });
+
+  sortRevertBtn.addEventListener('click', function () {
+    draftHot = savedHot.slice();
+    renderSortList();
+  });
+
+  // ---- Tab 2：管理列表（新增 / 隐藏 / 恢复 / 删除） ----
+  function renderManageList() {
+    var q = (filterQ.value || '').trim().toLowerCase();
+    var st = filterState.value || 'all';
+    var items = [];
+    savedHot.forEach(function (name) {
+      items.push({ name: name, hidden: false, custom: !DEFAULT_SET.has(name) });
+    });
+    savedHidden.forEach(function (name) {
+      items.push({ name: name, hidden: true, custom: !DEFAULT_SET.has(name) });
+    });
+
+    var filtered = items.filter(function (it) {
+      if (st === 'visible' && it.hidden) return false;
+      if (st === 'hidden' && !it.hidden) return false;
+      if (q && it.name.toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+
+    mgrList.innerHTML = '';
+    if (!filtered.length) {
+      var empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.style.padding = '24px';
+      empty.textContent = '没有匹配的游戏';
+      mgrList.appendChild(empty);
+      return;
+    }
+
+    filtered.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'game-mgr-row';
+
+      var label = document.createElement('span');
+      label.className = 'sort-name' + (it.hidden ? ' is-hidden' : '');
+      label.textContent = it.name;
+      row.appendChild(label);
+
+      if (it.hidden) {
+        var stTag = document.createElement('span');
+        stTag.className = 'tag t-used';
+        stTag.textContent = '已隐藏';
+        row.appendChild(stTag);
+      } else if (it.custom) {
+        var cTag = document.createElement('span');
+        cTag.className = 'game-chip-badge';
+        cTag.textContent = '新增';
+        row.appendChild(cTag);
+      }
+
+      var acts = document.createElement('div');
+      acts.className = 'row-mini-actions';
+
+      if (it.hidden) {
+        var btnRestore = document.createElement('button');
+        btnRestore.type = 'button';
+        btnRestore.className = 'mini-btn accent';
+        btnRestore.textContent = '恢复展示';
+        btnRestore.addEventListener('click', function () {
+          var nextHidden = savedHidden.filter(function (x) { return x !== it.name; });
+          var nextHot = savedHot.slice();
+          if (nextHot.indexOf(it.name) === -1) nextHot.push(it.name);
+          persistCatalog(nextHot, nextHidden, '已恢复：' + it.name);
+        });
+        acts.appendChild(btnRestore);
+      } else if (it.custom) {
+        var btnDel = document.createElement('button');
+        btnDel.type = 'button';
+        btnDel.className = 'mini-btn danger';
+        btnDel.textContent = '删除';
+        btnDel.addEventListener('click', function () {
+          var nextHot = savedHot.filter(function (x) { return x !== it.name; });
+          persistCatalog(nextHot, savedHidden.slice(), '已删除：' + it.name);
+        });
+        acts.appendChild(btnDel);
+      } else {
+        var btnHide = document.createElement('button');
+        btnHide.type = 'button';
+        btnHide.className = 'mini-btn';
+        btnHide.textContent = '隐藏';
+        btnHide.addEventListener('click', function () {
+          var nextHot = savedHot.filter(function (x) { return x !== it.name; });
+          var nextHidden = savedHidden.slice();
+          if (nextHidden.indexOf(it.name) === -1) nextHidden.push(it.name);
+          persistCatalog(nextHot, nextHidden, '已隐藏：' + it.name);
+        });
+        acts.appendChild(btnHide);
+      }
+
+      row.appendChild(acts);
+      mgrList.appendChild(row);
     });
   }
 
+  function handleAddGame() {
+    var name = (addInput.value || '').trim().slice(0, 32);
+    if (!name) {
+      addInput.focus();
+      return;
+    }
+    var nextHidden = savedHidden.filter(function (x) { return x !== name; });
+    var nextHot = savedHot.filter(function (x) { return x !== name; });
+    if (addPos.value === 'bottom') {
+      nextHot.push(name);
+    } else {
+      nextHot.unshift(name);
+    }
+    addBtn.disabled = true;
+    persistCatalog(nextHot, nextHidden, '已添加：' + name, function () {
+      addInput.value = '';
+      addInput.focus();
+    }).finally(function () {
+      addBtn.disabled = false;
+    });
+  }
+
+  addBtn.addEventListener('click', handleAddGame);
+  addInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddGame();
+    }
+  });
+  filterQ.addEventListener('input', renderManageList);
+  filterState.addEventListener('change', renderManageList);
+
+  // ---- 一键还原默认（复用全站确认弹窗，异步零跳转） ----
+  resetBtn.addEventListener('click', function () {
+    var doReset = function () {
+      fetch('/admin/settings/games/reset', {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' }
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (res) {
+          if (res && res.ok) {
+            savedHot = (res.hot_games || []).slice();
+            savedHidden = [];
+            draftHot = savedHot.slice();
+            isCustomized = false;
+            updateHeader();
+            renderSortList();
+            renderManageList();
+            notify('已还原为出厂默认游戏列表');
+          }
+        });
+    };
+    if (window.pccConfirm) {
+      window.pccConfirm(
+        {
+          title: '还原默认热门游戏',
+          msg: '将清空所有排序、新增与隐藏设置，恢复为出厂默认的 20 款热门游戏与原始顺序。',
+          okText: '还原默认'
+        },
+        doReset
+      );
+    } else {
+      doReset();
+    }
+  });
+
+  // ---- 识别补丁 JSON 校验 ----
   var fmtBtn = document.getElementById('btn-format-patch');
   var patchTa = document.getElementById('seed_patch_json');
   var patchSt = document.getElementById('patch-status');
@@ -226,6 +608,10 @@
       }
     });
   }
+
+  updateHeader();
+  renderSortList();
+  renderManageList();
 })();
 </script>
 {% endblock %}

@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, Body, Form, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import settings
@@ -332,32 +332,57 @@ def _encode_name_array(names: list[str]) -> str:
 
 
 def _build_settings_ctx(vals: dict[str, str], *, error: str = "", error_section: str = "", saved_section: str = "") -> dict:
-    added_games = _parse_name_list(vals.get("games_json", ""))
-    hidden_games = _parse_name_list(vals.get("hidden_games_json", ""))
-    hidden_set = set(hidden_games)
-    visible_games: list[dict] = []
-    seen: set[str] = set()
-    for name in added_games:
-        if name not in seen:
-            seen.add(name)
-            visible_games.append({"name": name, "custom": True})
-    for name in settings.DEFAULT_GAMES:
-        if name not in hidden_set and name not in seen:
-            seen.add(name)
-            visible_games.append({"name": name, "custom": False})
+    hot_games, hidden_games, is_customized = settings.resolve_game_catalog(vals)
+    default_set = set(settings.DEFAULT_GAMES)
+    visible_games = [{"name": n, "custom": n not in default_set} for n in hot_games]
     return {
         "kefu_qq": vals["kefu_qq"],
         "notice": vals["notice"],
         "api_base_url": vals["api_base_url"],
         "seed_patch_json": vals["seed_patch_json"],
         "visible_games": visible_games,
-        "added_count": len(added_games),
+        "hot_games_data_json": json.dumps(hot_games, ensure_ascii=False),
+        "hidden_games_data_json": json.dumps(hidden_games, ensure_ascii=False),
+        "default_games_data_json": json.dumps(list(settings.DEFAULT_GAMES), ensure_ascii=False),
         "hidden_games": hidden_games,
-        "is_customized": bool(added_games or hidden_games),
+        "is_customized": is_customized,
         "error": error,
         "error_section": error_section,
         "saved_section": saved_section,
     }
+
+
+def _persist_game_catalog(pool, hot_games: list[str], hidden_games: list[str]) -> tuple[list[str], list[str], bool]:
+    """清洗去重并持久化完整有序热门游戏列表与隐藏列表。"""
+    clean_hidden: list[str] = []
+    seen_h: set[str] = set()
+    for x in hidden_games:
+        nm = str(x or "").strip()[:32]
+        if nm and nm not in seen_h:
+            seen_h.add(nm)
+            clean_hidden.append(nm)
+
+    clean_hot: list[str] = []
+    seen_hot: set[str] = set()
+    for x in hot_games:
+        nm = str(x or "").strip()[:32]
+        if nm and nm not in seen_hot and nm not in seen_h:
+            seen_hot.add(nm)
+            clean_hot.append(nm)
+
+    default_set = set(settings.DEFAULT_GAMES)
+    custom_only = [n for n in clean_hot if n not in default_set]
+    is_custom = (tuple(clean_hot) != settings.DEFAULT_GAMES) or bool(clean_hidden)
+
+    settings.set_app_settings(
+        pool,
+        {
+            "hot_games_json": json.dumps(clean_hot, ensure_ascii=False) if is_custom else "",
+            "games_json": _encode_game_objects(custom_only),
+            "hidden_games_json": _encode_name_array(clean_hidden),
+        },
+    )
+    return clean_hot, clean_hidden, is_custom
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -372,28 +397,40 @@ def settings_page(request: Request):
     )
 
 
+@router.post("/settings/games/save")
+def settings_games_save(request: Request, payload: dict = Body(...)):
+    """异步保存完整有序热门游戏列表与隐藏列表（支持拖拽排序/批量增删，零整页刷新）。"""
+    if not request.session.get("uid"):
+        return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
+    raw_hot = payload.get("hot_games")
+    raw_hidden = payload.get("hidden_games")
+    if not isinstance(raw_hot, list) or not isinstance(raw_hidden, list):
+        return JSONResponse({"ok": False, "error": "参数格式错误"}, status_code=400)
+    hot, hidden, is_custom = _persist_game_catalog(request.app.state.pool, raw_hot, raw_hidden)
+    return JSONResponse(
+        {
+            "ok": True,
+            "hot_games": hot,
+            "hidden_games": hidden,
+            "is_customized": is_custom,
+        }
+    )
+
+
 @router.post("/settings/games/add")
 def settings_games_add(request: Request, name: str = Form("")):
     if (r := require_login(request)) is not None:
         return r
     clean = name.strip()[:32]
     if not clean:
-        return RedirectResponse("/admin/settings", status_code=303)
+        return RedirectResponse("/admin/settings#game-catalog", status_code=303)
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, request.app.state.config)
-    added = _parse_name_list(vals.get("games_json", ""))
-    hidden = _parse_name_list(vals.get("hidden_games_json", ""))
-    if clean in hidden:
-        hidden = [x for x in hidden if x != clean]
-    elif clean not in settings.DEFAULT_GAMES and clean not in added:
-        added.insert(0, clean)
-    settings.set_app_settings(
-        pool,
-        {
-            "games_json": _encode_game_objects(added),
-            "hidden_games_json": _encode_name_array(hidden),
-        },
-    )
+    hot, hidden, _ = settings.resolve_game_catalog(vals)
+    hidden = [x for x in hidden if x != clean]
+    if clean not in hot:
+        hot.insert(0, clean)
+    _persist_game_catalog(pool, hot, hidden)
     return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
@@ -406,19 +443,11 @@ def settings_games_delete(request: Request, name: str = Form("")):
         return RedirectResponse("/admin/settings#game-catalog", status_code=303)
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, request.app.state.config)
-    added = _parse_name_list(vals.get("games_json", ""))
-    hidden = _parse_name_list(vals.get("hidden_games_json", ""))
-    if clean in added:
-        added = [x for x in added if x != clean]
+    hot, hidden, _ = settings.resolve_game_catalog(vals)
+    hot = [x for x in hot if x != clean]
     if clean in settings.DEFAULT_GAMES and clean not in hidden:
         hidden.append(clean)
-    settings.set_app_settings(
-        pool,
-        {
-            "games_json": _encode_game_objects(added),
-            "hidden_games_json": _encode_name_array(hidden),
-        },
-    )
+    _persist_game_catalog(pool, hot, hidden)
     return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
@@ -429,17 +458,31 @@ def settings_games_restore(request: Request, name: str = Form("")):
     clean = name.strip()
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, request.app.state.config)
-    hidden = [x for x in _parse_name_list(vals.get("hidden_games_json", "")) if x != clean]
-    settings.set_app_settings(pool, {"hidden_games_json": _encode_name_array(hidden)})
+    hot, hidden, _ = settings.resolve_game_catalog(vals)
+    hidden = [x for x in hidden if x != clean]
+    if clean and clean not in hot:
+        hot.append(clean)
+    _persist_game_catalog(pool, hot, hidden)
     return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
 @router.post("/settings/games/reset")
 def settings_games_reset(request: Request):
     if (r := require_login(request)) is not None:
+        if "application/json" in (request.headers.get("accept") or ""):
+            return JSONResponse({"ok": False, "error": "未登录"}, status_code=401)
         return r
     pool = request.app.state.pool
-    settings.set_app_settings(pool, {"games_json": "", "hidden_games_json": ""})
+    settings.set_app_settings(pool, {"hot_games_json": "", "games_json": "", "hidden_games_json": ""})
+    if "application/json" in (request.headers.get("accept") or ""):
+        return JSONResponse(
+            {
+                "ok": True,
+                "hot_games": list(settings.DEFAULT_GAMES),
+                "hidden_games": [],
+                "is_customized": False,
+            }
+        )
     return RedirectResponse("/admin/settings?saved=games_reset#game-catalog", status_code=303)
 
 
