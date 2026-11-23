@@ -9,8 +9,9 @@
 </div>
 
 <form class="toolbar" method="get" action="/admin/users">
-  <input name="q" value="{{ q }}" placeholder="搜索账号、手机号或设备 ID" style="width:280px">
+  <input name="q" value="{{ q }}" placeholder="搜索账号、手机号、android_id 或机型" style="width:300px">
   <button type="submit">筛选</button>
+  {% if q %}<a class="btn" href="/admin/users">重置</a>{% endif %}
 </form>
 
 <div class="table-wrap">
@@ -22,7 +23,7 @@
         <th>手机号</th>
         <th>授权状态</th>
         <th>使用概况</th>
-        <th>最后设备</th>
+        <th>设备 / android_id</th>
         <th>创建时间</th>
         <th>最后登录</th>
         <th>最后校验</th>
@@ -49,7 +50,22 @@
           <span class="muted">—</span>
           {% endif %}
         </td>
-        <td class="mono muted">{{ (r[3] or '—')[:16] }}</td>
+        <td style="white-space:nowrap">
+          {% if r[11] or r[10] %}
+          <div>{{ r[11] or '未知机型' }}{% if r[12] %} <span class="muted" style="font-size:12px">Android {{ r[12] }}</span>{% endif %}</div>
+          <div style="margin-top:2px">
+            {% if r[10] %}
+            <a href="/admin/devices?q={{ r[10] }}" class="mono section-link" style="color:var(--fg-2);font-size:12px" title="点击去设备页查看该物理机全部记录（install_id: {{ r[3] or '—' }}）">{{ r[10] }}</a>
+            {% else %}
+            <a href="/admin/devices?q={{ r[3] }}" class="mono muted section-link" style="font-size:12px" title="点击去设备页查看">{{ (r[3] or '—')[:16] }}</a>
+            {% endif %}
+          </div>
+          {% elif r[3] %}
+          <a href="/admin/devices?q={{ r[3] }}" class="mono muted section-link" style="font-size:12px" title="点击去设备页查看">{{ r[3][:16] }}</a>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
         <td class="mono secondary">{{ iso(r[4])[:19] if r[4] else '—' }}</td>
         <td class="mono secondary">{{ iso(r[5])[:19] if r[5] else '—' }}</td>
         <td class="mono secondary">{{ iso(r[6])[:19] if r[6] else '—' }}</td>

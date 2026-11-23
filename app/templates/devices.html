@@ -4,24 +4,25 @@
 <div class="page-head">
   <div>
     <h1>设备</h1>
-    <p class="page-sub">共 {{ total }} 台上报设备，按最后在线时间倒序排列</p>
+    <p class="page-sub">共 {{ total }} 条设备安装记录，点击 android_id 可查看同机全部账号</p>
   </div>
 </div>
 
 <form class="toolbar" method="get" action="/admin/devices">
-  <input name="q" value="{{ q }}" placeholder="搜索设备 ID、机型或版本" style="width:280px">
+  <input name="q" value="{{ q }}" placeholder="搜索 install_id、android_id、机型或版本" style="width:320px">
   <button type="submit">筛选</button>
+  {% if q %}<a class="btn" href="/admin/devices">重置</a>{% endif %}
 </form>
 
 <div class="table-wrap">
   <table>
     <thead>
       <tr>
-        <th>install_id</th>
+        <th>关联账号</th>
         <th>android_id</th>
-        <th>机型</th>
-        <th>系统</th>
+        <th>机型 / 系统</th>
         <th>版本</th>
+        <th>install_id</th>
         <th>首次上报</th>
         <th>最后在线</th>
         <th>旧版设备授权</th>
@@ -29,15 +30,35 @@
     </thead>
     <tbody>
       {% for r in rows %}
+      {% set linked = users_by_install.get(r[0], []) %}
       <tr>
-        <td><span class="code-chip" data-copy="{{ r[0] }}" title="点击复制">{{ r[0][:18] }}</span></td>
-        <td class="mono muted">{{ (r[1] or '—')[:16] }}</td>
-        <td>{{ r[2] or '—' }}</td>
-        <td class="mono secondary">{{ r[3] or '—' }}</td>
-        <td class="mono secondary">{{ r[4] or '—' }}</td>
-        <td class="mono secondary">{{ iso(r[5])[:19] if r[5] else '—' }}</td>
-        <td class="mono secondary">{{ iso(r[6])[:19] if r[6] else '—' }}</td>
-        <td>
+        <td style="white-space:nowrap">
+          {% if linked %}
+          <div style="display:flex;flex-wrap:wrap;gap:4px;max-width:200px">
+            {% for uname in linked %}
+            <a href="/admin/users?q={{ uname }}" class="code-chip" style="text-decoration:none" title="点击去用户页查看 {{ uname }}">{{ uname }}</a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td style="white-space:nowrap">
+          {% if r[1] %}
+          <a href="/admin/users?q={{ r[1] }}" class="mono section-link" style="color:var(--accent);font-size:12px" title="点击查看此 android_id 下的所有账号">{{ r[1] }}</a>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td style="white-space:nowrap">
+          <div>{{ r[2] or '—' }}</div>
+          {% if r[3] %}<div class="muted" style="font-size:12px">Android {{ r[3] }}</div>{% endif %}
+        </td>
+        <td class="mono secondary" style="white-space:nowrap">{{ r[4] or '—' }}</td>
+        <td><span class="code-chip" data-copy="{{ r[0] }}" title="点击复制完整 install_id">{{ r[0][:16] }}</span></td>
+        <td class="mono secondary" style="white-space:nowrap">{{ iso(r[5])[:19] if r[5] else '—' }}</td>
+        <td class="mono secondary" style="white-space:nowrap">{{ iso(r[6])[:19] if r[6] else '—' }}</td>
+        <td style="white-space:nowrap">
           {% if r[7] and r[7] > now %}<span class="tag t-ok">至 {{ iso(r[7])[:10] }}</span>
           {% else %}<span class="tag t-used">无</span>{% endif %}
         </td>

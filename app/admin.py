@@ -205,20 +205,28 @@ def users_page(request: Request, page: int = 1, q: str = ""):
     page = max(1, page)
     where, args = [], []
     if q.strip():
-        where.append("(username ILIKE %s OR phone ILIKE %s OR install_id ILIKE %s)")
+        where.append(
+            "(u.username ILIKE %s OR u.phone ILIKE %s OR u.install_id ILIKE %s OR COALESCE(d.android_id, '') ILIKE %s OR COALESCE(d.model, '') ILIKE %s)"
+        )
         like = f"%{q.strip()}%"
-        args += [like, like, like]
+        args += [like, like, like, like, like]
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
     pool = request.app.state.pool
     with pool.connection() as c:
-        cur = c.execute(f"SELECT count(*) FROM pcc_users {sql_where}", args)
+        cur = c.execute(
+            f"SELECT count(*) FROM pcc_users u LEFT JOIN devices d ON d.install_id = u.install_id {sql_where}",
+            args,
+        )
         (total,) = cur.fetchone()
         cur = c.execute(
             f"""
-            SELECT id, username, password, install_id, created_at, last_login_at,
-                   last_record_at, revoked, license_expires_at, phone
-              FROM pcc_users {sql_where}
-             ORDER BY created_at DESC
+            SELECT u.id, u.username, u.password, u.install_id, u.created_at, u.last_login_at,
+                   u.last_record_at, u.revoked, u.license_expires_at, u.phone,
+                   COALESCE(d.android_id, ''), COALESCE(d.model, ''), COALESCE(d.os_version, '')
+              FROM pcc_users u
+              LEFT JOIN devices d ON d.install_id = u.install_id
+              {sql_where}
+             ORDER BY u.created_at DESC
              LIMIT %s OFFSET %s
             """,
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
@@ -297,9 +305,9 @@ def devices_page(request: Request, page: int = 1, q: str = ""):
     page = max(1, page)
     where, args = [], []
     if q.strip():
-        where.append("(install_id ILIKE %s OR model ILIKE %s OR app_version ILIKE %s)")
+        where.append("(install_id ILIKE %s OR android_id ILIKE %s OR model ILIKE %s OR app_version ILIKE %s)")
         like = f"%{q.strip()}%"
-        args += [like, like, like]
+        args += [like, like, like, like]
     sql_where = ("WHERE " + " AND ".join(where)) if where else ""
     pool = request.app.state.pool
     with pool.connection() as c:
@@ -316,9 +324,33 @@ def devices_page(request: Request, page: int = 1, q: str = ""):
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
         rows = cur.fetchall()
+        install_ids = [r[0] for r in rows if r[0]]
+        users_by_install: dict[str, list[str]] = {}
+        if install_ids:
+            ucur = c.execute(
+                """
+                SELECT install_id, username
+                  FROM pcc_users
+                 WHERE install_id = ANY(%s)
+                 ORDER BY last_login_at DESC
+                """,
+                (install_ids,),
+            )
+            for iid, uname in ucur.fetchall():
+                if iid and uname:
+                    users_by_install.setdefault(iid, []).append(uname)
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(
-        request, "devices.html", rows=rows, page=page, pages=pages, total=total, q=q, iso=iso, now=now()
+        request,
+        "devices.html",
+        rows=rows,
+        users_by_install=users_by_install,
+        page=page,
+        pages=pages,
+        total=total,
+        q=q,
+        iso=iso,
+        now=now(),
     )
 
 

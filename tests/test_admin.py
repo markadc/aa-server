@@ -310,6 +310,59 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(dl.status_code, 303)
         self.assertEqual(len(self.pool.db.pcc_usage_sessions), 0)
 
+    def test_users_and_devices_bidirectional_linkage_by_android_id(self) -> None:
+        self._login_admin()
+        # 同一台物理机（同一 android_id）重装两次，分别注册了两个账号
+        self.client.request(
+            "POST",
+            "/api/v1/device/register",
+            json_body={
+                "install_id": "inst-phone-aaa",
+                "android_id": "7beeadf79acf699f",
+                "model": "MNA-AL00",
+                "os_version": "12",
+                "app_version": "pcc_v3.4.0",
+            },
+        )
+        self.client.request(
+            "POST",
+            "/api/v1/device/register",
+            json_body={
+                "install_id": "inst-phone-bbb",
+                "android_id": "7beeadf79acf699f",
+                "model": "MNA-AL00",
+                "os_version": "12",
+                "app_version": "pcc_v3.4.0",
+            },
+        )
+        u1 = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "inst-phone-aaa", "username": "same_dev_1", "password": "password1"},
+            client_ip="10.0.11.1",
+        ).json()
+        u2 = self.client.request(
+            "POST",
+            "/api/v1/auth/register",
+            json_body={"install_id": "inst-phone-bbb", "username": "same_dev_2", "password": "password2"},
+            client_ip="10.0.11.2",
+        ).json()
+        self.assertTrue(u1["ok"] and u2["ok"])
+
+        # 用户页按 android_id 搜索，能把同机两个账号全部筛出且展示机型与 android_id
+        up = self.client.request("GET", "/admin/users?q=7beeadf79acf699f")
+        self.assertEqual(up.status_code, 200)
+        self.assertIn("same_dev_1", up.text)
+        self.assertIn("same_dev_2", up.text)
+        self.assertIn("MNA-AL00", up.text)
+        self.assertIn("7beeadf79acf699f", up.text)
+
+        # 设备页按 android_id 搜索，能反显关联的两个账号
+        dp = self.client.request("GET", "/admin/devices?q=7beeadf79acf699f")
+        self.assertEqual(dp.status_code, 200)
+        self.assertIn("same_dev_1", dp.text)
+        self.assertIn("same_dev_2", dp.text)
+
 
 if __name__ == "__main__":
     unittest.main()

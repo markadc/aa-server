@@ -156,8 +156,8 @@ class FakeConnection:
         if norm.startswith("SELECT install_id, android_id, model, os_version, app_version"):
             has_where = " WHERE " in norm
             if has_where:
-                rows = self._filter_devices(params[:3])
-                limit, offset = params[3], params[4]
+                rows = self._filter_devices(params[:-2])
+                limit, offset = params[-2], params[-1]
             else:
                 rows = list(self.db.devices.values())
                 limit, offset = params[0], params[1]
@@ -331,22 +331,30 @@ class FakeConnection:
                 ]
             )
 
+        if norm.startswith("SELECT install_id, username FROM pcc_users WHERE install_id = ANY(%s)"):
+            iids = set(params[0])
+            matched = [u for u in self.db.pcc_users if u["install_id"] in iids]
+            matched.sort(key=lambda u: u["last_login_at"], reverse=True)
+            return FakeCursor([(u["install_id"], u["username"]) for u in matched])
+
         if norm.startswith("SELECT count(*) FROM pcc_users"):
             rows = self._filter_users(params) if " WHERE " in norm else self.db.pcc_users
             return FakeCursor([(len(rows),)])
 
-        if norm.startswith("SELECT id, username, password, install_id, created_at, last_login_at"):
+        if norm.startswith("SELECT u.id, u.username, u.password, u.install_id, u.created_at, u.last_login_at"):
             has_where = " WHERE " in norm
             if has_where:
-                rows = self._filter_users(params[:3])
-                limit, offset = params[3], params[4]
+                rows = self._filter_users(params[:-2])
+                limit, offset = params[-2], params[-1]
             else:
                 rows = list(self.db.pcc_users)
                 limit, offset = params[0], params[1]
             rows.sort(key=lambda u: u["created_at"], reverse=True)
             sliced = rows[offset : offset + limit]
-            return FakeCursor(
-                [
+            out = []
+            for u in sliced:
+                d = self.db.devices.get(u["install_id"]) or {}
+                out.append(
                     (
                         u["id"],
                         u["username"],
@@ -358,10 +366,12 @@ class FakeConnection:
                         u["revoked"],
                         u["license_expires_at"],
                         u["phone"],
+                        d.get("android_id", ""),
+                        d.get("model", ""),
+                        d.get("os_version", ""),
                     )
-                    for u in sliced
-                ]
-            )
+                )
+            return FakeCursor(out)
 
         # ---- license_keys ----
         if norm.startswith("UPDATE license_keys SET used_at = now(), used_by = %s WHERE code = %s AND used_at IS NULL AND revoked = false"):
@@ -732,19 +742,25 @@ class FakeConnection:
             d
             for d in self.db.devices.values()
             if self._like_match(d["install_id"], pat)
+            or self._like_match(d["android_id"], pat)
             or self._like_match(d["model"], pat)
             or self._like_match(d["app_version"], pat)
         ]
 
     def _filter_users(self, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         pat = params[0]
-        return [
-            u
-            for u in self.db.pcc_users
-            if self._like_match(u["username"], pat)
-            or self._like_match(u["phone"], pat)
-            or self._like_match(u["install_id"], pat)
-        ]
+        out = []
+        for u in self.db.pcc_users:
+            d = self.db.devices.get(u["install_id"]) or {}
+            if (
+                self._like_match(u["username"], pat)
+                or self._like_match(u["phone"], pat)
+                or self._like_match(u["install_id"], pat)
+                or self._like_match(d.get("android_id", ""), pat)
+                or self._like_match(d.get("model", ""), pat)
+            ):
+                out.append(u)
+        return out
 
     def _filter_keys(self, norm: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         rows = list(self.db.license_keys)
