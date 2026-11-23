@@ -97,6 +97,20 @@ class CrashIn(BaseModel):
     stacktrace: str = Field(min_length=1, max_length=16000)
 
 
+class UsageReportIn(BaseModel):
+    session_id: str = Field(min_length=6, max_length=64)
+    game: str = Field(default="", max_length=64)
+    play_mode: str = Field(default="", max_length=32)
+    started_at_ms: int = Field(ge=0)
+    ended_at_ms: int = Field(ge=0)
+    duration_sec: int = Field(ge=0, le=86400)
+    rounds: int = Field(ge=0, le=5000)
+    install_id: str = Field(default="", max_length=64)
+    app_version: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=64)
+    os_version: str = Field(default="", max_length=32)
+
+
 def _upsert_device(c, d: DeviceIn) -> None:
     c.execute(
         """
@@ -655,6 +669,72 @@ def record_start(request: Request, user: dict = Depends(require_user)):
         "valid_until_ms": int((now() + timedelta(days=grace_days)).timestamp() * 1000),
         "server_time": iso(now()),
     }
+
+
+@secure.post("/usage/report")
+def report_usage_session(body: UsageReportIn, request: Request, user: dict = Depends(require_user)):
+    """上报一次有效记牌会话（必须登录；识别到开局后才产生会话，按 session_id 幂等去重）。"""
+    if body.rounds <= 0 or body.duration_sec <= 0:
+        return {"ok": True, "ignored": True}
+
+    now_dt = now()
+    started_dt = (
+        datetime.fromtimestamp(body.started_at_ms / 1000.0, tz=timezone.utc)
+        if body.started_at_ms > 0
+        else now_dt - timedelta(seconds=body.duration_sec)
+    )
+    ended_dt = (
+        datetime.fromtimestamp(body.ended_at_ms / 1000.0, tz=timezone.utc)
+        if body.ended_at_ms > 0
+        else started_dt + timedelta(seconds=body.duration_sec)
+    )
+    if ended_dt < started_dt:
+        ended_dt = started_dt + timedelta(seconds=body.duration_sec)
+
+    session_id = body.session_id.strip()[:64]
+    game = (body.game.strip() or "未知游戏")[:64]
+    play_mode = body.play_mode.strip()[:32]
+    install_id = (body.install_id.strip() or user.get("install_id", ""))[:64]
+    app_version = body.app_version.strip()[:64]
+    model = body.model.strip()[:64]
+    os_version = body.os_version.strip()[:32]
+
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            INSERT INTO pcc_usage_sessions
+                (session_id, user_id, username, install_id, game, play_mode,
+                 started_at, ended_at, duration_sec, rounds, app_version, model, os_version)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (session_id) DO UPDATE SET
+                ended_at = GREATEST(pcc_usage_sessions.ended_at, EXCLUDED.ended_at),
+                duration_sec = GREATEST(pcc_usage_sessions.duration_sec, EXCLUDED.duration_sec),
+                rounds = GREATEST(pcc_usage_sessions.rounds, EXCLUDED.rounds),
+                game = CASE WHEN EXCLUDED.game <> '' THEN EXCLUDED.game ELSE pcc_usage_sessions.game END,
+                play_mode = CASE WHEN EXCLUDED.play_mode <> '' THEN EXCLUDED.play_mode ELSE pcc_usage_sessions.play_mode END
+            RETURNING id
+            """,
+            (
+                session_id,
+                user["id"],
+                user["username"],
+                install_id,
+                game,
+                play_mode,
+                started_dt,
+                ended_dt,
+                int(body.duration_sec),
+                int(body.rounds),
+                app_version,
+                model,
+                os_version,
+            ),
+        )
+        row = cur.fetchone()
+        rid = row[0] if row else 0
+
+    return {"ok": True, "id": rid}
 
 
 def gen_code() -> str:

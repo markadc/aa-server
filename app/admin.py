@@ -9,13 +9,24 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import settings
-from .api import gen_code, iso, now
+from .api import BJ_TZ, gen_code, iso, now
 from .security import verify_password
 
 router = APIRouter(prefix="/admin")
 
 TPL = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 PAGE_SIZE = 50
+
+
+def fmt_duration(sec: int | None) -> str:
+    s = max(0, int(sec or 0))
+    if s < 60:
+        return f"{s}秒"
+    m, rem_s = divmod(s, 60)
+    if m < 60:
+        return f"{m}分 {rem_s:02d}秒" if rem_s else f"{m}分钟"
+    h, rem_m = divmod(m, 60)
+    return f"{h}小时 {rem_m:02d}分" if rem_m else f"{h}小时"
 
 
 def require_login(request: Request):
@@ -213,11 +224,27 @@ def users_page(request: Request, page: int = 1, q: str = ""):
             args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
         )
         rows = cur.fetchall()
+        usernames = [r[1] for r in rows if r[1]]
+        usage_map: dict[str, tuple[int, int]] = {}
+        if usernames:
+            ucur = c.execute(
+                """
+                SELECT username, COALESCE(SUM(rounds), 0), COALESCE(SUM(duration_sec), 0)
+                  FROM pcc_usage_sessions
+                 WHERE username = ANY(%s)
+                 GROUP BY username
+                """,
+                (usernames,),
+            )
+            for uname, sum_rounds, sum_sec in ucur.fetchall():
+                usage_map[uname] = (int(sum_rounds or 0), int(sum_sec or 0))
     pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
     return render(
         request,
         "users.html",
         rows=rows,
+        usage_map=usage_map,
+        fmt_duration=fmt_duration,
         page=page,
         pages=pages,
         total=total,
@@ -707,3 +734,98 @@ def crashes_clear(request: Request):
     with pool.connection() as c:
         c.execute("DELETE FROM pcc_crash_logs")
     return RedirectResponse("/admin/crashes", status_code=303)
+
+
+@router.get("/usage", response_class=HTMLResponse)
+def usage_page(request: Request, page: int = 1, q: str = "", game: str = ""):
+    if (r := require_login(request)) is not None:
+        return r
+    page = max(1, page)
+    where, args = [], []
+    if q.strip():
+        where.append("(username ILIKE %s OR game ILIKE %s OR model ILIKE %s OR app_version ILIKE %s)")
+        like = f"%{q.strip()}%"
+        args += [like, like, like, like]
+    if game.strip():
+        where.append("game = %s")
+        args.append(game.strip())
+    sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+
+    today_start = now().astimezone(BJ_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            SELECT COUNT(DISTINCT username), COALESCE(SUM(duration_sec), 0), COALESCE(SUM(rounds), 0)
+              FROM pcc_usage_sessions
+             WHERE started_at >= %s
+            """,
+            (today_start,),
+        )
+        today_users, today_sec, today_rounds = cur.fetchone()
+
+        cur = c.execute(
+            """
+            SELECT game, COALESCE(SUM(rounds), 0) AS r_sum
+              FROM pcc_usage_sessions
+             WHERE started_at >= %s AND game <> ''
+             GROUP BY game
+             ORDER BY r_sum DESC
+             LIMIT 1
+            """,
+            (today_start,),
+        )
+        top_row = cur.fetchone()
+        top_game = top_row[0] if top_row else "暂无"
+        top_game_rounds = int(top_row[1] or 0) if top_row else 0
+
+        cur = c.execute(
+            "SELECT DISTINCT game FROM pcc_usage_sessions WHERE game <> '' ORDER BY game ASC LIMIT 60"
+        )
+        game_options = [r[0] for r in cur.fetchall()]
+
+        cur = c.execute(f"SELECT count(*) FROM pcc_usage_sessions {sql_where}", args)
+        (total,) = cur.fetchone()
+
+        cur = c.execute(
+            f"""
+            SELECT id, username, game, play_mode, started_at, ended_at,
+                   duration_sec, rounds, app_version, model, os_version
+              FROM pcc_usage_sessions {sql_where}
+             ORDER BY started_at DESC
+             LIMIT %s OFFSET %s
+            """,
+            args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+        rows = cur.fetchall()
+
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    return render(
+        request,
+        "usage.html",
+        rows=rows,
+        page=page,
+        pages=pages,
+        total=total,
+        q=q,
+        game=game,
+        game_options=game_options,
+        today_users=int(today_users or 0),
+        today_sec=int(today_sec or 0),
+        today_rounds=int(today_rounds or 0),
+        top_game=top_game,
+        top_game_rounds=top_game_rounds,
+        fmt_duration=fmt_duration,
+        iso=iso,
+    )
+
+
+@router.post("/usage/{usage_id}/delete")
+def usage_delete(request: Request, usage_id: int):
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("DELETE FROM pcc_usage_sessions WHERE id = %s", (usage_id,))
+    return RedirectResponse("/admin/usage", status_code=303)

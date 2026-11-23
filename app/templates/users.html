@@ -21,6 +21,7 @@
         <th>密码</th>
         <th>手机号</th>
         <th>授权状态</th>
+        <th>使用概况</th>
         <th>最后设备</th>
         <th>创建时间</th>
         <th>最后登录</th>
@@ -39,6 +40,14 @@
           {% if r[8] and r[8] > now %}<span class="tag t-ok">至 {{ iso(r[8])[:10] }}</span>
           {% elif r[8] %}<span class="tag t-exp">已过期 {{ iso(r[8])[:10] }}</span>
           {% else %}<span class="tag t-used">未激活</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap">
+          {% set st = usage_map.get(r[1]) %}
+          {% if st and st[0] > 0 %}
+          <a href="/admin/usage?q={{ r[1] }}" class="section-link" style="color:var(--accent);font-size:12px" title="查看该用户的详细使用记录">{{ st[0] }} 局 · {{ fmt_duration(st[1]) }}</a>
+          {% else %}
+          <span class="muted">—</span>
+          {% endif %}
         </td>
         <td class="mono muted">{{ (r[3] or '—')[:16] }}</td>
         <td class="mono secondary">{{ iso(r[4])[:19] if r[4] else '—' }}</td>
@@ -65,7 +74,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="10" class="empty">还没有用户</td></tr>
+      <tr><td colspan="11" class="empty">还没有用户</td></tr>
       {% endfor %}
     </tbody>
   </table>

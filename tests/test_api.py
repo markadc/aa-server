@@ -423,6 +423,85 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertFalse(r2["ok"])
         self.assertEqual(r2["error_code"], "rate_limited")
 
+    def test_usage_report_requires_login_ignores_zero_and_is_idempotent(self) -> None:
+        import time
+        now_ms = int(time.time() * 1000)
+        unauth = self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-unauth-1",
+                "game": "欢乐斗地主（腾讯）",
+                "play_mode": "斗地主",
+                "started_at_ms": now_ms - 60000,
+                "ended_at_ms": now_ms,
+                "duration_sec": 60,
+                "rounds": 2,
+            },
+        )
+        self.assertEqual(unauth.status_code, 401)
+
+        u = self.client.request(
+            "POST", "/api/v1/auth/register", json_body={"install_id": "dev-usage-1"}, client_ip="10.0.9.1"
+        ).json()
+
+        # 0 局不入库（未识别到开局）
+        ign = self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-zero-001",
+                "game": "欢乐斗地主（腾讯）",
+                "started_at_ms": now_ms - 10000,
+                "ended_at_ms": now_ms,
+                "duration_sec": 10,
+                "rounds": 0,
+            },
+            headers={"X-Token": u["token"]},
+        ).json()
+        self.assertTrue(ign["ok"])
+        self.assertTrue(ign.get("ignored"))
+        self.assertEqual(len(self.pool.db.pcc_usage_sessions), 0)
+
+        # 正常上报 + 同 session_id 补报更新（幂等取较大值）
+        ok1 = self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-real-001",
+                "game": "欢乐斗地主（腾讯）",
+                "play_mode": "斗地主",
+                "started_at_ms": now_ms - 600000,
+                "ended_at_ms": now_ms - 300000,
+                "duration_sec": 300,
+                "rounds": 3,
+                "app_version": "pcc_v3.4.0",
+                "model": "Honor Magic",
+            },
+            headers={"X-Token": u["token"]},
+        ).json()
+        self.assertTrue(ok1["ok"])
+        self.assertEqual(len(self.pool.db.pcc_usage_sessions), 1)
+
+        ok2 = self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-real-001",
+                "game": "欢乐斗地主（腾讯）",
+                "play_mode": "斗地主",
+                "started_at_ms": now_ms - 600000,
+                "ended_at_ms": now_ms,
+                "duration_sec": 600,
+                "rounds": 6,
+            },
+            headers={"X-Token": u["token"]},
+        ).json()
+        self.assertTrue(ok2["ok"])
+        self.assertEqual(len(self.pool.db.pcc_usage_sessions), 1)
+        self.assertEqual(self.pool.db.pcc_usage_sessions[0]["rounds"], 6)
+        self.assertEqual(self.pool.db.pcc_usage_sessions[0]["duration_sec"], 600)
+
 
 if __name__ == "__main__":
     unittest.main()

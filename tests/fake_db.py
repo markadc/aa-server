@@ -48,11 +48,13 @@ class FakeDB:
         self.app_settings: dict[str, dict[str, Any]] = {}
         self.pcc_feedbacks: list[dict[str, Any]] = []
         self.pcc_crash_logs: list[dict[str, Any]] = []
+        self.pcc_usage_sessions: list[dict[str, Any]] = []
         self._seq_key = 1
         self._seq_user = 1
         self._seq_act = 1
         self._seq_fb = 1
         self._seq_crash = 1
+        self._seq_usage = 1
 
     def add_key(self, code: str, days: int, note: str = "", revoked: bool = False) -> int:
         kid = self._seq_key
@@ -615,6 +617,109 @@ class FakeConnection:
             self.db.pcc_crash_logs.clear()
             return FakeCursor()
 
+        # ---- pcc_usage_sessions ----
+        if norm.startswith("INSERT INTO pcc_usage_sessions"):
+            sid, uid, uname, iid, game, pmode, st, ed, dur, rounds, app_ver, model, os_ver = params
+            for row in self.db.pcc_usage_sessions:
+                if row["session_id"] == sid:
+                    row["ended_at"] = max(row["ended_at"], ed)
+                    row["duration_sec"] = max(row["duration_sec"], dur)
+                    row["rounds"] = max(row["rounds"], rounds)
+                    if game:
+                        row["game"] = game
+                    if pmode:
+                        row["play_mode"] = pmode
+                    return FakeCursor([(row["id"],)])
+            rid = self.db._seq_usage
+            self.db._seq_usage += 1
+            self.db.pcc_usage_sessions.append(
+                {
+                    "id": rid,
+                    "session_id": sid,
+                    "user_id": uid,
+                    "username": uname,
+                    "install_id": iid,
+                    "game": game,
+                    "play_mode": pmode,
+                    "started_at": st,
+                    "ended_at": ed,
+                    "duration_sec": dur,
+                    "rounds": rounds,
+                    "app_version": app_ver,
+                    "model": model,
+                    "os_version": os_ver,
+                    "created_at": _now(),
+                }
+            )
+            return FakeCursor([(rid,)])
+
+        if norm.startswith("SELECT username, COALESCE(SUM(rounds), 0), COALESCE(SUM(duration_sec), 0) FROM pcc_usage_sessions"):
+            names = set(params[0])
+            agg: dict[str, list[int]] = {}
+            for r in self.db.pcc_usage_sessions:
+                if r["username"] in names:
+                    cur = agg.setdefault(r["username"], [0, 0])
+                    cur[0] += r["rounds"]
+                    cur[1] += r["duration_sec"]
+            return FakeCursor([(u, v[0], v[1]) for u, v in agg.items()])
+
+        if norm.startswith("SELECT COUNT(DISTINCT username), COALESCE(SUM(duration_sec), 0), COALESCE(SUM(rounds), 0) FROM pcc_usage_sessions"):
+            since = params[0]
+            matched = [r for r in self.db.pcc_usage_sessions if r["started_at"] >= since]
+            users = len({r["username"] for r in matched})
+            sec = sum(r["duration_sec"] for r in matched)
+            rds = sum(r["rounds"] for r in matched)
+            return FakeCursor([(users, sec, rds)])
+
+        if norm.startswith("SELECT game, COALESCE(SUM(rounds), 0) AS r_sum FROM pcc_usage_sessions"):
+            since = params[0]
+            by_game: dict[str, int] = {}
+            for r in self.db.pcc_usage_sessions:
+                if r["started_at"] >= since and r["game"]:
+                    by_game[r["game"]] = by_game.get(r["game"], 0) + r["rounds"]
+            if not by_game:
+                return FakeCursor([])
+            top_g, top_r = max(by_game.items(), key=lambda kv: kv[1])
+            return FakeCursor([(top_g, top_r)])
+
+        if norm == "SELECT DISTINCT game FROM pcc_usage_sessions WHERE game <> '' ORDER BY game ASC LIMIT 60":
+            games = sorted({r["game"] for r in self.db.pcc_usage_sessions if r["game"]})[:60]
+            return FakeCursor([(g,) for g in games])
+
+        if norm.startswith("SELECT count(*) FROM pcc_usage_sessions"):
+            rows = self._filter_usage(norm, params)
+            return FakeCursor([(len(rows),)])
+
+        if norm.startswith("SELECT id, username, game, play_mode, started_at, ended_at, duration_sec, rounds"):
+            q_params = params[:-2]
+            limit, offset = params[-2], params[-1]
+            rows = self._filter_usage(norm, q_params)
+            rows.sort(key=lambda r: r["started_at"], reverse=True)
+            sliced = rows[offset : offset + limit]
+            return FakeCursor(
+                [
+                    (
+                        r["id"],
+                        r["username"],
+                        r["game"],
+                        r["play_mode"],
+                        r["started_at"],
+                        r["ended_at"],
+                        r["duration_sec"],
+                        r["rounds"],
+                        r["app_version"],
+                        r["model"],
+                        r["os_version"],
+                    )
+                    for r in sliced
+                ]
+            )
+
+        if norm == "DELETE FROM pcc_usage_sessions WHERE id = %s":
+            uid = params[0]
+            self.db.pcc_usage_sessions = [r for r in self.db.pcc_usage_sessions if r["id"] != uid]
+            return FakeCursor()
+
         raise AssertionError(f"FakeConnection 未处理的 SQL: {norm} | params={params}")
 
     def _like_match(self, value: str | None, pattern: str) -> bool:
@@ -692,6 +797,25 @@ class FakeConnection:
             or self._like_match(r["message"], pat)
             or self._like_match(r["stacktrace"], pat)
         ]
+
+    def _filter_usage(self, norm: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        rows = list(self.db.pcc_usage_sessions)
+        idx = 0
+        if "username ILIKE %s" in norm:
+            pat = params[idx]
+            idx += 4
+            rows = [
+                r
+                for r in rows
+                if self._like_match(r["username"], pat)
+                or self._like_match(r["game"], pat)
+                or self._like_match(r["model"], pat)
+                or self._like_match(r["app_version"], pat)
+            ]
+        if "game = %s" in norm:
+            g = params[idx]
+            rows = [r for r in rows if r["game"] == g]
+        return rows
 
 
 class FakePool:

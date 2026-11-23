@@ -115,3 +115,25 @@ CREATE TABLE IF NOT EXISTS pcc_crash_logs (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_pcc_crash_logs_created ON pcc_crash_logs (created_at DESC);
+
+-- 用户有效记牌使用记录（按一次开局会话一条，按 session_id 幂等去重）
+CREATE TABLE IF NOT EXISTS pcc_usage_sessions (
+    id           BIGSERIAL PRIMARY KEY,
+    session_id   TEXT NOT NULL UNIQUE,
+    user_id      BIGINT REFERENCES pcc_users (id) ON DELETE SET NULL,
+    username     TEXT NOT NULL DEFAULT '',
+    install_id   TEXT NOT NULL DEFAULT '',
+    game         TEXT NOT NULL DEFAULT '',
+    play_mode    TEXT NOT NULL DEFAULT '',
+    started_at   TIMESTAMPTZ NOT NULL,
+    ended_at     TIMESTAMPTZ NOT NULL,
+    duration_sec INT  NOT NULL DEFAULT 0 CHECK (duration_sec >= 0),
+    rounds       INT  NOT NULL DEFAULT 0 CHECK (rounds >= 0),
+    app_version  TEXT NOT NULL DEFAULT '',
+    model        TEXT NOT NULL DEFAULT '',
+    os_version   TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pcc_usage_started ON pcc_usage_sessions (started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pcc_usage_user    ON pcc_usage_sessions (username, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pcc_usage_game    ON pcc_usage_sessions (game, started_at DESC);

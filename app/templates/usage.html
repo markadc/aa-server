@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}使用统计 · pcc 控制台{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>使用统计</h1>
+    <p class="page-sub">从识别到开局发牌起计时，自动剔除未开局等待与忘关挂机时长</p>
+  </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom:24px">
+  <div class="stat-card">
+    <div class="stat-label">今日活跃用户</div>
+    <div class="stat-num accent">{{ today_users }}</div>
+    <div class="stat-meta">产生有效对局的独立账号</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">今日有效时长</div>
+    <div class="stat-num" style="font-size:24px;line-height:1.3">{{ fmt_duration(today_sec) }}</div>
+    <div class="stat-meta">仅统计识别开局后的实际打牌时长</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">今日总对局数</div>
+    <div class="stat-num">{{ today_rounds }}</div>
+    <div class="stat-meta">已识别开局的累计局数</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">今日最热游戏</div>
+    <div class="stat-num" style="font-size:20px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="{{ top_game }}">{{ top_game }}</div>
+    <div class="stat-meta">{% if top_game_rounds > 0 %}今日 {{ top_game_rounds }} 局{% else %}今日暂无对局{% endif %}</div>
+  </div>
+</div>
+
+<form class="toolbar" method="get" action="/admin/usage">
+  <input name="q" value="{{ q }}" placeholder="搜索账号、游戏名、机型或版本" style="width:280px">
+  <select name="game" aria-label="游戏筛选">
+    <option value="">全部游戏</option>
+    {% for g in game_options %}
+    <option value="{{ g }}" {{ 'selected' if game == g else '' }}>{{ g }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">筛选</button>
+  {% if q or game %}<a class="btn" href="/admin/usage">重置</a>{% endif %}
+</form>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>对局时段</th>
+        <th>账号</th>
+        <th>游戏 / 玩法</th>
+        <th class="num-col">有效时长</th>
+        <th class="num-col">对局数</th>
+        <th>版本 / 机型</th>
+        <th class="actions-col">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono secondary" style="white-space:nowrap">
+          <div>{{ iso(r[4])[:16] if r[4] else '—' }}</div>
+          <div class="muted" style="font-size:11px">至 {{ iso(r[5])[11:16] if r[5] else '—' }}</div>
+        </td>
+        <td style="white-space:nowrap">
+          <span class="code-chip" data-copy="{{ r[1] }}" title="点击复制账号">{{ r[1] or '—' }}</span>
+        </td>
+        <td>
+          <div>{{ r[2] or '未知游戏' }}</div>
+          {% if r[3] %}<div class="muted" style="font-size:12px">{{ r[3] }}</div>{% endif %}
+        </td>
+        <td class="num-col" style="white-space:nowrap">{{ fmt_duration(r[6]) }}</td>
+        <td class="num-col" style="white-space:nowrap;color:var(--accent);font-weight:500">{{ r[7] }} 局</td>
+        <td class="mono muted" style="white-space:nowrap">
+          <div>{{ r[8] or '—' }}</div>
+          <div>{{ r[9] or '—' }}{% if r[10] %} / Android {{ r[10] }}{% endif %}</div>
+        </td>
+        <td class="actions-col">
+          <form method="post" action="/admin/usage/{{ r[0] }}/delete">
+            <button class="ghost danger" type="submit" data-confirm="删除后该条使用记录将无法恢复" data-confirm-title="删除使用记录" data-confirm-ok="确认删除" data-confirm-danger="1">删除</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty">还没有有效记牌使用记录</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  <span>共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
+  <div class="pager-links">
+    {% if page > 1 %}<a href="/admin/usage?page={{ page - 1 }}&q={{ q }}&game={{ game }}">上一页</a>{% endif %}
+    {% if page < pages %}<a href="/admin/usage?page={{ page + 1 }}&q={{ q }}&game={{ game }}">下一页</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

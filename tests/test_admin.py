@@ -21,7 +21,7 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(r.headers.get("location"), "/admin")
 
     def test_require_login_redirect(self) -> None:
-        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/feedbacks", "/admin/crashes", "/admin/settings"):
+        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/usage", "/admin/feedbacks", "/admin/crashes", "/admin/settings"):
             r = self.client.request("GET", path)
             self.assertEqual(r.status_code, 303, f"{path} 未登录应 303 跳转")
             self.assertEqual(r.headers.get("location"), "/admin/login")
@@ -272,6 +272,43 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(bs.status_code, 303)
         self.assertEqual(self.pool.db.app_settings["notice"]["value"], "仅改公告")
         self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
+
+    def test_usage_page_and_users_summary(self) -> None:
+        self._login_admin()
+        u = self.client.request(
+            "POST", "/api/v1/auth/register", json_body={"install_id": "dev-adm-u1"}, client_ip="10.0.9.5"
+        ).json()
+        import time
+        now_ms = int(time.time() * 1000)
+        self.client.request(
+            "POST",
+            "/api/v1/usage/report",
+            json_body={
+                "session_id": "sess-adm-001",
+                "game": "大掼蛋（腾讯）",
+                "play_mode": "掼蛋",
+                "started_at_ms": now_ms - 900000,
+                "ended_at_ms": now_ms,
+                "duration_sec": 900,
+                "rounds": 5,
+            },
+            headers={"X-Token": u["token"]},
+        )
+
+        # 使用统计页与用户页均可见
+        up = self.client.request("GET", "/admin/usage")
+        self.assertEqual(up.status_code, 200)
+        self.assertIn("大掼蛋（腾讯）", up.text)
+        self.assertIn("5 局", up.text)
+
+        users_p = self.client.request("GET", "/admin/users")
+        self.assertEqual(users_p.status_code, 200)
+        self.assertIn("5 局", users_p.text)
+
+        rid = self.pool.db.pcc_usage_sessions[0]["id"]
+        dl = self.client.request("POST", f"/admin/usage/{rid}/delete")
+        self.assertEqual(dl.status_code, 303)
+        self.assertEqual(len(self.pool.db.pcc_usage_sessions), 0)
 
 
 if __name__ == "__main__":
