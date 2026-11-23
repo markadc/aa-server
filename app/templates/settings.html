@@ -4,7 +4,7 @@
 <div class="page-head">
   <div>
     <h1>系统设置</h1>
-    <p class="page-sub">按使用频率分区管理，修改后立即生效，无需重启服务</p>
+    <p class="page-sub">按模块分区管理，保存后立即生效，无需重启服务</p>
   </div>
 </div>
 
@@ -21,148 +21,153 @@
 <div class="notice" style="border-color:var(--danger);color:var(--danger);background:var(--danger-soft)">{{ error }}</div>
 {% endif %}
 
-<div class="settings-stack">
+<div class="settings-grid">
 
-  <!-- 卡片 1：日常运营 -->
-  <div class="panel">
-    <div class="section-head">
-      <div>
-        <h2 class="section-title">日常运营</h2>
-        <p class="section-desc">修改客服与公告，随时可改，不影响下方配置</p>
-      </div>
-      <span class="tag t-ok">随时可改</span>
-    </div>
-    <form method="post" action="/admin/settings">
-      <input type="hidden" name="section" value="basic">
-      <div class="field">
-        <label for="kefu_qq">客服 QQ</label>
-        <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789" style="width:100%;max-width:320px">
-        <div class="field-hint">用户点「联系客服」时自动复制的号码；留空时客户端兜底复制 123456789</div>
-      </div>
-      <div class="field">
-        <label for="notice">公告内容</label>
-        <textarea id="notice" name="notice" rows="4" placeholder="输入公告内容，留空则客户端显示「暂无公告」">{{ notice }}</textarea>
-        <div class="field-hint">展示在客户端「我的」页顶部；内容变更时客户端「我的」Tab 自动亮起小红点提醒</div>
-      </div>
-      <button class="primary" type="submit">保存日常设置</button>
-    </form>
-  </div>
-
-  <!-- 卡片 2：搜索框游戏目录（双 Tab：调整顺序 / 管理列表，全程异步无刷新） -->
-  <div class="panel" id="game-catalog">
-    <div class="section-head">
-      <div>
-        <h2 class="section-title">热门游戏目录</h2>
-        <p class="section-desc" id="gc-summary">当前展示 {{ visible_games|length }} 款，与 App「选择游戏」列表及顺序完全一致</p>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span class="tag t-used" id="gc-default-tag" {% if is_customized %}style="display:none"{% endif %}>出厂默认</span>
-        <button type="button" class="ghost" id="gc-reset-btn" {% if not is_customized %}style="display:none"{% endif %}>还原默认</button>
-      </div>
-    </div>
-
-    <div class="seg-tabs" role="tablist" aria-label="游戏目录操作模式">
-      <button type="button" class="seg-tab active" data-gc-tab="sort" role="tab" aria-selected="true">调整顺序</button>
-      <button type="button" class="seg-tab" data-gc-tab="manage" role="tab" aria-selected="false">管理列表（新增 / 隐藏）</button>
-    </div>
-
-    <!-- Tab 1：只管排序（拖拽 + 置顶/上下移） -->
-    <div id="gc-pane-sort">
-      <div class="field-hint" style="margin:0 0 10px">拖动左侧手柄或点击右侧按钮调整顺序，排在前面的游戏会优先显示在 App 弹窗顶部；排完点「保存排序」</div>
-      <div class="game-list-box" id="gc-sort-list"></div>
-      <div class="game-bar-foot">
-        <span class="field-status" id="gc-sort-status">当前顺序已与服务端同步</span>
-        <div style="display:flex;gap:8px">
-          <button type="button" id="gc-sort-revert" style="display:none">撤销调整</button>
-          <button type="button" class="primary" id="gc-sort-save" disabled>保存排序</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tab 2：只管列表（新增 / 隐藏 / 恢复 / 删除自定义） -->
-    <div id="gc-pane-manage" class="game-pane-hidden">
-      <div class="game-add-bar" style="margin-bottom:12px">
-        <input id="gc-add-input" placeholder="输入要添加的游戏名，如：微乐够级" maxlength="32">
-        <select id="gc-add-pos" aria-label="插入位置" style="width:auto">
-          <option value="top">插到顶部</option>
-          <option value="bottom">插到末尾</option>
-        </select>
-        <button type="button" class="primary" id="gc-add-btn">添加游戏</button>
-      </div>
-
-      <div class="game-filter-bar">
-        <input id="gc-filter-q" placeholder="搜索列表中的游戏…">
-        <select id="gc-filter-state" aria-label="显示筛选" style="width:auto">
-          <option value="all">全部状态</option>
-          <option value="visible">展示中</option>
-          <option value="hidden">已隐藏</option>
-        </select>
-      </div>
-
-      <div class="game-list-box" id="gc-mgr-list" style="max-height:320px"></div>
-      <div class="game-bar-foot">
-        <span class="field-status" id="gc-mgr-status">操作立即生效，用户在 App 点「刷新」即可同步</span>
-      </div>
-    </div>
-
-    <!-- 进阶识别配置补丁默认收起 -->
-    <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'patch' else '' }}>
-      <summary>
-        <span>进阶 · 识别配置补丁（仅修复某款游戏识别偏移时使用）</span>
-        <span class="fold-chevron">▾</span>
-      </summary>
-      <form method="post" action="/admin/settings">
-        <input type="hidden" name="section" value="patch">
-        <div class="field" style="margin-bottom:12px">
-          <label for="seed_patch_json">direction_config 增量补丁（JSON 对象，平时留空）</label>
-          <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='平时请留空；仅需覆盖指定键时填入 JSON 对象'>{{ seed_patch_json }}</textarea>
-          <div class="field-actions">
-            <button type="button" id="btn-format-patch">校验并格式化 JSON</button>
-            <span id="patch-status" class="field-status">留空不覆盖内置识别配置</span>
-          </div>
-          <div class="example-box">格式示例（只覆盖你要改的键，不会删掉其他内置配置）：
-{
-  "direction_schemas": "[...从真机导出的最新 JSON 字符串...]"
-}</div>
-        </div>
-        <button class="primary" type="submit">保存识别补丁</button>
-      </form>
-    </details>
-  </div>
-
-  <!-- 卡片 3：服务端地址灾备 -->
-  <div class="panel">
-    <details class="fold-block" style="margin-top:0;border:none;padding:0;background:transparent" {{ 'open' if api_base_url or error_section == 'failover' else '' }}>
-      <summary style="padding:0;margin:0;border:none">
+  <!-- 左栏：日常运营 + 高级服务端灾备 -->
+  <div class="settings-col">
+    <div class="panel">
+      <div class="card-head">
         <div>
-          <div class="section-title">高级 · 服务端地址灾备</div>
-          <div class="section-desc">准备更换服务器 IP 时才需要填写，平时请保持留空</div>
+          <h2 class="card-title">日常运营</h2>
+          <p class="card-desc">客服与公告随时可改，不影响右侧配置</p>
         </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          {% if api_base_url %}
-          <span class="tag t-warn">已启用自定义地址</span>
-          {% else %}
-          <span class="tag t-used">未启用</span>
-          {% endif %}
-          <span class="fold-chevron">▾</span>
-        </div>
-      </summary>
-
-      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hairline)">
-        <div class="safe-callout">
-          <strong>防变砖保障：</strong>客户端收到非空地址后会切到新地址；如果新地址填错或服务器连不上，客户端会自动回落内置默认地址重试，不会导致老包失联。
-        </div>
-        <form method="post" action="/admin/settings">
-          <input type="hidden" name="section" value="failover">
-          <div class="field">
-            <label for="api_base_url">新服务端地址（以 http:// 或 https:// 开头）</label>
-            <input id="api_base_url" name="api_base_url" value="{{ api_base_url }}" class="mono" placeholder="例如 http://1.15.42.244:8800（留空表示恢复默认）" style="width:100%;max-width:460px">
-            <div class="field-hint">迁服前把新服务器地址填在这里，等老版本客户端陆续同步后再停旧服</div>
-          </div>
-          <button class="primary" type="submit">保存灾备地址</button>
-        </form>
+        <span class="tag t-ok">随时可改</span>
       </div>
-    </details>
+      <form method="post" action="/admin/settings">
+        <input type="hidden" name="section" value="basic">
+        <div class="field">
+          <label for="kefu_qq">客服 QQ</label>
+          <input id="kefu_qq" name="kefu_qq" value="{{ kefu_qq }}" placeholder="例如 123456789" style="width:100%">
+          <div class="field-hint">点击「联系客服」时复制的号码；留空兜底 123456789</div>
+        </div>
+        <div class="field">
+          <label for="notice">公告内容</label>
+          <textarea id="notice" name="notice" rows="5" placeholder="留空时客户端显示「暂无公告」">{{ notice }}</textarea>
+          <div class="field-hint">内容变更后，客户端底部「我的」Tab 自动亮起小红点</div>
+        </div>
+        <button class="primary" type="submit">保存日常设置</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <details class="fold-block" style="margin-top:0;border:none;padding:0;background:transparent" {{ 'open' if api_base_url or error_section == 'failover' else '' }}>
+        <summary style="padding:0;margin:0;border:none">
+          <div>
+            <div class="card-title">服务端地址灾备</div>
+            <div class="card-desc">换服务器 IP 前才需填写，平时留空</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            {% if api_base_url %}
+            <span class="tag t-warn">已启用</span>
+            {% else %}
+            <span class="tag t-used">未启用</span>
+            {% endif %}
+            <span class="fold-chevron">▾</span>
+          </div>
+        </summary>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hairline)">
+          <div class="safe-callout">
+            <strong>防变砖保障：</strong>客户端收到非空地址后会自动切换；若新地址填错或不可达，会自动回落内置默认地址重试。
+          </div>
+          <form method="post" action="/admin/settings">
+            <input type="hidden" name="section" value="failover">
+            <div class="field">
+              <label for="api_base_url">新服务端地址</label>
+              <input id="api_base_url" name="api_base_url" value="{{ api_base_url }}" class="mono" placeholder="http://1.15.42.244:8800（留空恢复默认）" style="width:100%">
+              <div class="field-hint">需以 http:// 或 https:// 开头，迁服前提前下发</div>
+            </div>
+            <button class="primary" type="submit">保存灾备地址</button>
+          </form>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- 右栏：热门游戏目录主工作台 -->
+  <div class="settings-col">
+    <div class="panel" id="game-catalog">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">热门游戏目录</h2>
+          <p class="card-desc" id="gc-summary">与 App「选择游戏」列表及顺序完全一致</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <span class="tag t-used" id="gc-default-tag" {% if is_customized %}style="display:none"{% endif %}>出厂默认</span>
+          <button type="button" class="ghost" id="gc-reset-btn" {% if not is_customized %}style="display:none"{% endif %}>还原默认</button>
+        </div>
+      </div>
+
+      <div class="gc-subbar">
+        <div class="seg-tabs" role="tablist" aria-label="游戏目录模式">
+          <button type="button" class="seg-tab active" data-gc-tab="sort" role="tab" aria-selected="true">排序</button>
+          <button type="button" class="seg-tab" data-gc-tab="manage" role="tab" aria-selected="false">管理</button>
+        </div>
+        <span class="gc-count-pill" id="gc-count-pill">{{ visible_games|length }} 款展示中</span>
+      </div>
+
+      <!-- Tab 1：排序 -->
+      <div id="gc-pane-sort">
+        <div class="game-list-box" id="gc-sort-list"></div>
+        <div class="game-bar-foot">
+          <span class="field-status" id="gc-sort-status">拖动行或点击按钮调整顺序</span>
+          <div style="display:flex;gap:8px;flex-shrink:0">
+            <button type="button" id="gc-sort-revert" style="display:none">撤销</button>
+            <button type="button" class="primary" id="gc-sort-save" disabled>保存排序</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2：管理（新增 / 隐藏 / 恢复） -->
+      <div id="gc-pane-manage" class="game-pane-hidden">
+        <div class="game-add-grid">
+          <input id="gc-add-input" placeholder="输入游戏名，如：微乐够级" maxlength="32">
+          <select id="gc-add-pos" aria-label="插入位置">
+            <option value="top">插到顶部</option>
+            <option value="bottom">插到末尾</option>
+          </select>
+          <button type="button" class="primary" id="gc-add-btn">添加</button>
+        </div>
+
+        <div class="game-filter-grid">
+          <input id="gc-filter-q" placeholder="搜索列表中的游戏…">
+          <select id="gc-filter-state" aria-label="显示筛选">
+            <option value="all">全部状态</option>
+            <option value="visible">展示中</option>
+            <option value="hidden">已隐藏</option>
+          </select>
+        </div>
+
+        <div class="game-list-box" id="gc-mgr-list" style="max-height:316px"></div>
+        <div class="game-bar-foot">
+          <span class="field-status" id="gc-mgr-status">增删立即生效，App 内点「刷新」同步</span>
+        </div>
+      </div>
+
+      <!-- 进阶识别配置补丁 -->
+      <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'patch' else '' }}>
+        <summary>
+          <span>进阶 · 识别配置补丁（仅修复识别偏移时使用）</span>
+          <span class="fold-chevron">▾</span>
+        </summary>
+        <form method="post" action="/admin/settings">
+          <input type="hidden" name="section" value="patch">
+          <div class="field" style="margin-bottom:12px">
+            <label for="seed_patch_json">direction_config 增量补丁（JSON 对象，平时留空）</label>
+            <textarea id="seed_patch_json" name="seed_patch_json" rows="4" class="mono" placeholder='留空不覆盖内置识别配置'>{{ seed_patch_json }}</textarea>
+            <div class="field-actions">
+              <button type="button" id="btn-format-patch">校验并格式化</button>
+              <span id="patch-status" class="field-status">留空安全兜底</span>
+            </div>
+            <div class="example-box">示例（仅覆盖指定键，不影响其余内置配置）：
+{
+  "direction_schemas": "[...]"
+}</div>
+          </div>
+          <button class="primary" type="submit">保存识别补丁</button>
+        </form>
+      </details>
+    </div>
   </div>
 
 </div>
@@ -188,7 +193,7 @@
   var draftHot = savedHot.slice();
   var isCustomized = !!initData.customized;
 
-  var summaryEl = document.getElementById('gc-summary');
+  var countPill = document.getElementById('gc-count-pill');
   var defaultTag = document.getElementById('gc-default-tag');
   var resetBtn = document.getElementById('gc-reset-btn');
   var sortList = document.getElementById('gc-sort-list');
@@ -202,7 +207,6 @@
   var filterQ = document.getElementById('gc-filter-q');
   var filterState = document.getElementById('gc-filter-state');
   var mgrList = document.getElementById('gc-mgr-list');
-  var mgrStatus = document.getElementById('gc-mgr-status');
 
   var toastEl = document.getElementById('copy-toast');
   var toastTimer = null;
@@ -223,8 +227,8 @@
   }
 
   function updateHeader() {
-    var hiddenPart = savedHidden.length ? ('，已隐藏 ' + savedHidden.length + ' 款') : '';
-    summaryEl.textContent = '当前展示 ' + savedHot.length + ' 款' + hiddenPart + '，与 App「选择游戏」列表及顺序完全一致';
+    var hiddenPart = savedHidden.length ? (' · 隐藏 ' + savedHidden.length) : '';
+    countPill.textContent = savedHot.length + ' 款展示中' + hiddenPart;
     defaultTag.style.display = isCustomized ? 'none' : '';
     resetBtn.style.display = isCustomized ? '' : 'none';
   }
@@ -234,10 +238,10 @@
     sortSaveBtn.disabled = !dirty;
     sortRevertBtn.style.display = dirty ? '' : 'none';
     if (dirty) {
-      sortStatus.textContent = '顺序已修改，记得点击右侧「保存排序」';
+      sortStatus.textContent = '顺序有改动，点击右侧「保存排序」生效';
       sortStatus.className = 'field-status';
     } else {
-      sortStatus.textContent = '当前顺序已与服务端同步';
+      sortStatus.textContent = '拖动行或点按钮调顺序，已与服务端同步';
       sortStatus.className = 'field-status ok';
     }
   }
@@ -259,7 +263,7 @@
     });
   });
 
-  // ---- 持久化到服务端（零刷新） ----
+  // ---- 异步持久化 ----
   function persistCatalog(nextHot, nextHidden, okMsg, onDone) {
     return fetch('/admin/settings/games/save', {
       method: 'POST',
@@ -289,7 +293,7 @@
       });
   }
 
-  // ---- Tab 1：拖拽排序列表渲染 ----
+  // ---- Tab 1：排序列表 ----
   var dragFromIdx = -1;
   var gripSvg = '<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">'
     + '<circle cx="5.5" cy="3.5" r="1.1"/><circle cx="10.5" cy="3.5" r="1.1"/>'
@@ -308,8 +312,8 @@
     if (!draftHot.length) {
       var empty = document.createElement('div');
       empty.className = 'empty';
-      empty.style.padding = '24px';
-      empty.textContent = '当前没有展示中的游戏，请切到「管理列表」添加或恢复';
+      empty.style.padding = '28px';
+      empty.textContent = '当前没有展示中的游戏，可切到「管理」添加或恢复';
       sortList.appendChild(empty);
       updateSortBar();
       return;
@@ -419,7 +423,7 @@
     renderSortList();
   });
 
-  // ---- Tab 2：管理列表（新增 / 隐藏 / 恢复 / 删除） ----
+  // ---- Tab 2：管理列表 ----
   function renderManageList() {
     var q = (filterQ.value || '').trim().toLowerCase();
     var st = filterState.value || 'all';
@@ -442,7 +446,7 @@
     if (!filtered.length) {
       var empty = document.createElement('div');
       empty.className = 'empty';
-      empty.style.padding = '24px';
+      empty.style.padding = '28px';
       empty.textContent = '没有匹配的游戏';
       mgrList.appendChild(empty);
       return;
@@ -476,7 +480,7 @@
         var btnRestore = document.createElement('button');
         btnRestore.type = 'button';
         btnRestore.className = 'mini-btn accent';
-        btnRestore.textContent = '恢复展示';
+        btnRestore.textContent = '恢复';
         btnRestore.addEventListener('click', function () {
           var nextHidden = savedHidden.filter(function (x) { return x !== it.name; });
           var nextHot = savedHot.slice();
@@ -545,7 +549,7 @@
   filterQ.addEventListener('input', renderManageList);
   filterState.addEventListener('change', renderManageList);
 
-  // ---- 一键还原默认（复用全站确认弹窗，异步零跳转） ----
+  // ---- 还原默认 ----
   resetBtn.addEventListener('click', function () {
     var doReset = function () {
       fetch('/admin/settings/games/reset', {
