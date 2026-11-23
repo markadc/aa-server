@@ -223,27 +223,30 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
         self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "3")
 
-        # 分区保存：hotfix 使用多行纯文本 games_lines 自动转 JSON 且去空去重，不影响日常运营和灾备地址
-        hf = self.client.request(
-            "POST",
-            "/admin/settings",
-            form_body={
-                "section": "hotfix",
-                "seed_version": "4",
-                "games_lines": " 微乐够级 \n\n博雅斗地主\n微乐够级\n",
-                "seed_patch_json": "",
-            },
-        )
-        self.assertEqual(hf.status_code, 303)
-        self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "4")
-        self.assertEqual(
-            self.pool.db.app_settings["games_json"]["value"],
-            '[{"name": "微乐够级"}, {"name": "博雅斗地主"}]',
-        )
-        self.assertEqual(self.pool.db.app_settings["kefu_qq"]["value"], "123")
-        self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
+        # 可视化游戏目录管理：添加、删除（隐藏默认）、恢复、还原默认
+        a1 = self.client.request("POST", "/admin/settings/games/add", form_body={"name": "微乐够级"})
+        self.assertEqual(a1.status_code, 303)
+        d_def = self.client.request("POST", "/admin/settings/games/delete", form_body={"name": "心悦众娱"})
+        self.assertEqual(d_def.status_code, 303)
 
-        # 分区保存：basic 只改公告，不动热更新与灾备地址
+        seed = self.client.request("GET", "/api/v1/seed/config").json()
+        self.assertEqual(seed["games"], [{"name": "微乐够级"}, {"name": "测试"}])
+        self.assertEqual(seed["hidden_games"], ["心悦众娱"])
+
+        # 恢复单个隐藏默认游戏
+        rs = self.client.request("POST", "/admin/settings/games/restore", form_body={"name": "心悦众娱"})
+        self.assertEqual(rs.status_code, 303)
+        seed2 = self.client.request("GET", "/api/v1/seed/config").json()
+        self.assertEqual(seed2["hidden_games"], [])
+
+        # 一键还原默认（清空所有自定义新增与隐藏）
+        rst = self.client.request("POST", "/admin/settings/games/reset")
+        self.assertEqual(rst.status_code, 303)
+        seed3 = self.client.request("GET", "/api/v1/seed/config").json()
+        self.assertEqual(seed3["games"], [])
+        self.assertEqual(seed3["hidden_games"], [])
+
+        # 分区保存：basic 只改公告，不动灾备地址
         bs = self.client.request(
             "POST",
             "/admin/settings",
@@ -251,7 +254,6 @@ class TestAdminPanel(unittest.TestCase):
         )
         self.assertEqual(bs.status_code, 303)
         self.assertEqual(self.pool.db.app_settings["notice"]["value"], "仅改公告")
-        self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "4")
         self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
 
 

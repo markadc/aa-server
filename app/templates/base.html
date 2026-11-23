@@ -1077,6 +1077,101 @@
     word-break: break-word;
   }
 
+  /* Game catalog visual chips */
+  .game-add-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .game-add-bar input {
+    flex: 1;
+    max-width: 360px;
+  }
+
+  .game-chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .game-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px 5px 12px;
+    border-radius: 8px;
+    background: var(--raised);
+    border: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--fg);
+  }
+
+  .game-chip.is-custom {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .game-chip-badge {
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .game-chip-del {
+    appearance: none;
+    border: none;
+    background: transparent;
+    color: var(--fg-3);
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 120ms var(--ease), color 120ms var(--ease);
+  }
+
+  .game-chip-del:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+
+  .game-hidden-box {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--hairline-strong);
+  }
+
+  .game-hidden-title {
+    font-size: 12px;
+    color: var(--fg-3);
+    margin-bottom: 8px;
+  }
+
+  .game-chip-restore {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px dashed var(--hairline-strong);
+    font-size: 12px;
+    color: var(--fg-2);
+    cursor: pointer;
+    transition: border-color 120ms var(--ease), color 120ms var(--ease);
+  }
+
+  .game-chip-restore:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   /* Responsive */
   @media (max-width: 960px) {
     .stats-grid {

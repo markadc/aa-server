@@ -13,6 +13,7 @@ MANAGED_KEYS = (
     "seed_version",
     "seed_patch_json",
     "games_json",
+    "hidden_games_json",
 )
 
 DEFAULTS = {
@@ -22,7 +23,32 @@ DEFAULTS = {
     "seed_version": "1",
     "seed_patch_json": "",
     "games_json": "",
+    "hidden_games_json": "",
 }
+
+# 与客户端 PccGameConfig.HOT_GAMES 保持 1:1 一致，供后台可视化增删与还原默认
+DEFAULT_GAMES = (
+    "欢乐斗地主（腾讯）",
+    "大掼蛋（腾讯）",
+    "微乐",
+    "微乐斗地主",
+    "微乐掼蛋",
+    "微乐跑得快",
+    "JJ斗地主",
+    "JJ跑得快",
+    "JJ掼蛋",
+    "多乐",
+    "多乐掼蛋",
+    "边锋",
+    "边锋斗地主",
+    "边锋掼蛋",
+    "边锋跑得快",
+    "边锋干瞪眼",
+    "哈灵",
+    "哈灵掼蛋",
+    "心悦",
+    "心悦众娱",
+)
 
 
 def get_app_settings(pool: ConnectionPool, cfg: dict) -> dict[str, str]:

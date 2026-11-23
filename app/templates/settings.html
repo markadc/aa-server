@@ -4,14 +4,16 @@
 <div class="page-head">
   <div>
     <h1>系统设置</h1>
-    <p class="page-sub">按使用频率分区保存，修改后立即生效，无需重启服务</p>
+    <p class="page-sub">按使用频率分区管理，修改后立即生效，无需重启服务</p>
   </div>
 </div>
 
 {% if saved_section %}
 <div class="notice">
   {% if saved_section == 'basic' %}日常运营设置已保存并立即生效
-  {% elif saved_section == 'hotfix' %}云端热更新配置已保存并立即生效
+  {% elif saved_section == 'games' %}游戏目录已更新，用户在 App「选择游戏」里点「刷新」即可同步
+  {% elif saved_section == 'games_reset' %}已还原为出厂默认游戏目录
+  {% elif saved_section == 'patch' %}识别配置补丁已保存并立即生效
   {% elif saved_section == 'failover' %}灾备服务端地址已保存并立即生效
   {% else %}设置已保存并立即生效{% endif %}
 </div>
@@ -23,12 +25,12 @@
 
 <div class="settings-stack">
 
-  <!-- 卡片 1：日常运营（高频、零风险） -->
+  <!-- 卡片 1：日常运营 -->
   <div class="panel">
     <div class="section-head">
       <div>
         <h2 class="section-title">日常运营</h2>
-        <p class="section-desc">修改客服与公告，随时可改，不影响下方技术配置</p>
+        <p class="section-desc">修改客服与公告，随时可改，不影响下方配置</p>
       </div>
       <span class="tag t-ok">随时可改</span>
     </div>
@@ -48,46 +50,67 @@
     </form>
   </div>
 
-  <!-- 卡片 2：云端热更新（按需使用，防呆设计） -->
+  <!-- 卡片 2：搜索框游戏目录（可视化增删 + 还原默认） -->
   <div class="panel">
     <div class="section-head">
       <div>
-        <h2 class="section-title">云端热更新</h2>
-        <p class="section-desc">免发新包即可扩充游戏搜索词库，或微调识别参数</p>
+        <h2 class="section-title">搜索框游戏目录</h2>
+        <p class="section-desc">当前共 {{ visible_games|length }} 款（与 App「选择游戏」弹窗 1:1 对应，用户点「刷新」立即生效）</p>
       </div>
-      <span class="tag t-used">当前版本 v{{ seed_version }}</span>
+      {% if is_customized %}
+      <form method="post" action="/admin/settings/games/reset">
+        <button type="submit" class="ghost" data-confirm="将清除所有新增与隐藏的游戏记录，恢复为出厂默认的 20 款热门游戏" data-confirm-title="还原默认游戏目录" data-confirm-ok="还原默认">还原默认</button>
+      </form>
+      {% else %}
+      <span class="tag t-used">出厂默认</span>
+      {% endif %}
     </div>
 
-    <div class="safe-callout">
-      <strong>安全说明：</strong>以下内容全部<strong>留空即可安全运行</strong>（App 始终内置完整离线配置作兜底）。每次改动下方内容后，请把版本号点一次 <strong>+1</strong> 再保存，客户端下次启动就会自动同步。
+    <form class="game-add-bar" method="post" action="/admin/settings/games/add">
+      <input name="name" placeholder="输入要添加的游戏名称，例如：微乐够级" maxlength="32" required>
+      <button class="primary" type="submit">添加游戏</button>
+    </form>
+
+    <div class="game-chip-list">
+      {% for g in visible_games %}
+      <div class="game-chip {{ 'is-custom' if g.custom else '' }}">
+        <span>{{ g.name }}</span>
+        {% if g.custom %}<span class="game-chip-badge">新增</span>{% endif %}
+        <form method="post" action="/admin/settings/games/delete" style="display:inline">
+          <input type="hidden" name="name" value="{{ g.name }}">
+          <button class="game-chip-del" type="submit" title="{{ '删除此新增游戏' if g.custom else '从搜索框隐藏此游戏' }}">×</button>
+        </form>
+      </div>
+      {% else %}
+      <span class="muted" style="font-size:13px">当前列表为空，可点右上角「还原默认」或上方添加游戏</span>
+      {% endfor %}
     </div>
 
-    <form method="post" action="/admin/settings">
-      <input type="hidden" name="section" value="hotfix">
-
-      <div class="field">
-        <label for="seed_version">热更新版本号</label>
-        <div class="inline-control">
-          <input id="seed_version" name="seed_version" value="{{ seed_version }}" class="mono" style="width:120px">
-          <button type="button" id="btn-bump-seed">+1</button>
-        </div>
-        <div class="field-hint">只要版本号变大，客户端就会自动拉取最新扩展游戏与识别补丁</div>
+    {% if hidden_games %}
+    <div class="game-hidden-box">
+      <div class="game-hidden-title">已隐藏的默认游戏（{{ hidden_games|length }} 款，点击可恢复展示）：</div>
+      <div class="game-chip-list">
+        {% for h in hidden_games %}
+        <form method="post" action="/admin/settings/games/restore" style="display:inline">
+          <input type="hidden" name="name" value="{{ h }}">
+          <button class="game-chip-restore" type="submit" title="点击恢复显示">+ {{ h }}</button>
+        </form>
+        {% endfor %}
       </div>
+    </div>
+    {% endif %}
 
-      <div class="field">
-        <label for="games_lines">云端扩展游戏目录（每行写一个游戏名）</label>
-        <textarea id="games_lines" name="games_lines" rows="5" placeholder="每行填一个游戏名称即可，例如：&#10;微乐够级&#10;博雅斗地主&#10;边锋双扣">{{ games_lines }}</textarea>
-        <div class="field-hint">不需要写任何 JSON 或引号，后台会自动转换格式；保存后客户端首页搜索框即可搜到这些游戏</div>
-      </div>
-
-      <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'hotfix' else '' }}>
-        <summary>
-          <span>进阶 · 识别配置补丁（仅修复某款游戏识别偏移时使用）</span>
-          <span class="fold-chevron">▾</span>
-        </summary>
-        <div class="field" style="margin-bottom:0">
-          <label for="seed_patch_json">direction_config 增量补丁（JSON 对象，可选）</label>
-          <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='平时请留空；需要覆盖指定键时填入 JSON 对象'>{{ seed_patch_json }}</textarea>
+    <!-- 进阶识别配置补丁默认收起 -->
+    <details class="fold-block" {{ 'open' if seed_patch_json or error_section == 'patch' else '' }}>
+      <summary>
+        <span>进阶 · 识别配置补丁（仅修复某款游戏识别偏移时使用）</span>
+        <span class="fold-chevron">▾</span>
+      </summary>
+      <form method="post" action="/admin/settings">
+        <input type="hidden" name="section" value="patch">
+        <div class="field" style="margin-bottom:12px">
+          <label for="seed_patch_json">direction_config 增量补丁（JSON 对象，平时留空）</label>
+          <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='平时请留空；仅需覆盖指定键时填入 JSON 对象'>{{ seed_patch_json }}</textarea>
           <div class="field-actions">
             <button type="button" id="btn-format-patch">校验并格式化 JSON</button>
             <span id="patch-status" class="field-status">留空不覆盖内置识别配置</span>
@@ -97,15 +120,12 @@
   "direction_schemas": "[...从真机导出的最新 JSON 字符串...]"
 }</div>
         </div>
-      </details>
-
-      <div style="margin-top:16px">
-        <button class="primary" type="submit">保存热更新配置</button>
-      </div>
-    </form>
+        <button class="primary" type="submit">保存识别补丁</button>
+      </form>
+    </details>
   </div>
 
-  <!-- 卡片 3：服务端地址灾备（低频高危，默认收起） -->
+  <!-- 卡片 3：服务端地址灾备 -->
   <div class="panel">
     <details class="fold-block" style="margin-top:0;border:none;padding:0;background:transparent" {{ 'open' if api_base_url or error_section == 'failover' else '' }}>
       <summary style="padding:0;margin:0;border:none">
@@ -144,15 +164,6 @@
 
 <script>
 (function () {
-  var bumpBtn = document.getElementById('btn-bump-seed');
-  var verInput = document.getElementById('seed_version');
-  if (bumpBtn && verInput) {
-    bumpBtn.addEventListener('click', function () {
-      var n = parseInt((verInput.value || '').trim(), 10);
-      verInput.value = isNaN(n) ? '2' : String(n + 1);
-    });
-  }
-
   var fmtBtn = document.getElementById('btn-format-patch');
   var patchTa = document.getElementById('seed_patch_json');
   var patchSt = document.getElementById('patch-status');

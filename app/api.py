@@ -191,7 +191,7 @@ def app_config(request: Request):
 
 @router.get("/seed/config")
 def seed_config(request: Request):
-    """下发云端识别配置补丁（direction_config）与扩展游戏目录（games）。"""
+    """下发云端识别配置补丁（direction_config）、新增游戏（games）与隐藏默认游戏（hidden_games）。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, cfg)
@@ -213,11 +213,21 @@ def seed_config(request: Request):
                 games = parsed_g
         except Exception:
             games = []
+    hidden_games: list[str] = []
+    raw_hidden = (vals.get("hidden_games_json") or "").strip()
+    if raw_hidden:
+        try:
+            parsed_h = json.loads(raw_hidden)
+            if isinstance(parsed_h, list):
+                hidden_games = [str(x).strip() for x in parsed_h if str(x).strip()]
+        except Exception:
+            hidden_games = []
     return {
         "ok": True,
         "seed_version": vals.get("seed_version") or "1",
         "direction_config": direction_patch,
         "games": games,
+        "hidden_games": hidden_games,
     }
 
 
