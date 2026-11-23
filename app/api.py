@@ -1,6 +1,7 @@
 """给 APK 调的接口。路径统一 /api/v1/...，JSON in / JSON out。"""
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -84,6 +85,18 @@ class FeedbackIn(BaseModel):
     os_version: str = Field(default="", max_length=32)
 
 
+class CrashIn(BaseModel):
+    install_id: str = Field(default="", max_length=64)
+    username: str = Field(default="", max_length=32)
+    app_version: str = Field(default="", max_length=64)
+    model: str = Field(default="", max_length=64)
+    os_version: str = Field(default="", max_length=32)
+    game: str = Field(default="", max_length=64)
+    thread_name: str = Field(default="", max_length=64)
+    message: str = Field(default="", max_length=500)
+    stacktrace: str = Field(min_length=1, max_length=16000)
+
+
 def _upsert_device(c, d: DeviceIn) -> None:
     c.execute(
         """
@@ -163,7 +176,7 @@ def ping(request: Request):
 
 @router.get("/app/config")
 def app_config(request: Request):
-    """APK 启动时拉的应用配置：客服 QQ 与公告，后台在线修改即时生效。"""
+    """APK 启动时拉的应用配置：客服 QQ、公告、灾备地址与云端识别配置版本号。"""
     cfg = request.app.state.config
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, cfg)
@@ -171,7 +184,78 @@ def app_config(request: Request):
         "ok": True,
         "kefu_qq": vals["kefu_qq"],
         "notice": vals["notice"],
+        "api_base_url": vals["api_base_url"],
+        "seed_version": vals["seed_version"] or "1",
     }
+
+
+@router.get("/seed/config")
+def seed_config(request: Request):
+    """下发云端识别配置补丁（direction_config）与扩展游戏目录（games）。"""
+    cfg = request.app.state.config
+    pool = request.app.state.pool
+    vals = settings.get_app_settings(pool, cfg)
+    direction_patch: dict[str, str] = {}
+    raw_patch = (vals.get("seed_patch_json") or "").strip()
+    if raw_patch:
+        try:
+            parsed = json.loads(raw_patch)
+            if isinstance(parsed, dict):
+                direction_patch = {str(k): str(v) for k, v in parsed.items()}
+        except Exception:
+            direction_patch = {}
+    games: list = []
+    raw_games = (vals.get("games_json") or "").strip()
+    if raw_games:
+        try:
+            parsed_g = json.loads(raw_games)
+            if isinstance(parsed_g, list):
+                games = parsed_g
+        except Exception:
+            games = []
+    return {
+        "ok": True,
+        "seed_version": vals.get("seed_version") or "1",
+        "direction_config": direction_patch,
+        "games": games,
+    }
+
+
+@router.post("/crash")
+def report_crash(body: CrashIn, request: Request):
+    """客户端崩溃日志无感上报（免登录，按设备 + IP 限流）。"""
+    client_ip = (request.client.host if request.client else "") or ""
+    install_id = body.install_id.strip()[:64]
+    limit_reason = auth.check_crash_rate_limit(install_id, client_ip)
+    if limit_reason is not None:
+        return {"ok": False, "error": limit_reason, "error_code": "rate_limited"}
+
+    username = (body.username.strip() or (request.headers.get("x-user") or "").strip())[:32]
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            INSERT INTO pcc_crash_logs
+                (install_id, username, app_version, model, os_version, game, thread_name, message, stacktrace)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, created_at
+            """,
+            (
+                install_id,
+                username,
+                body.app_version.strip()[:64],
+                body.model.strip()[:64],
+                body.os_version.strip()[:32],
+                body.game.strip()[:64],
+                body.thread_name.strip()[:64],
+                body.message.strip()[:500],
+                body.stacktrace.strip()[:16000],
+            ),
+        )
+        cid, created_at = cur.fetchone()
+
+    auth.mark_crash(install_id, client_ip)
+    return {"ok": True, "id": cid, "created_at": iso(created_at)}
 
 
 @router.post("/device/register")
@@ -366,7 +450,7 @@ def quick_login(body: QuickLoginIn, request: Request):
         if row is not None:
             user_id, username, password, lic_exp, phone = row
             cur = c.execute(
-                "UPDATE pcc_users SET token = %s, last_login_at = now() WHERE id = %s RETURNING token",
+                "UPDATE pcc_users SET prev_token = token, token = %s, last_login_at = now() WHERE id = %s RETURNING token",
                 (auth.gen_token(), user_id),
             )
             token = cur.fetchone()[0]
@@ -420,7 +504,7 @@ def login_by_account(body: LoginIn, request: Request):
         cur = c.execute(
             """
             UPDATE pcc_users
-               SET token = %s, install_id = %s, last_login_at = now()
+               SET prev_token = token, token = %s, install_id = %s, last_login_at = now()
              WHERE id = %s
             RETURNING token
             """,
@@ -515,6 +599,37 @@ def submit_feedback(body: FeedbackIn, request: Request, user: dict = Depends(req
 
     auth.mark_feedback(user["id"], client_ip)
     return {"ok": True, "id": fid, "created_at": iso(created_at)}
+
+
+@secure.get("/feedback/mine")
+def list_my_feedbacks(request: Request, user: dict = Depends(require_user)):
+    """查询当前登录账号最近 20 条反馈及官方回复。"""
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            SELECT id, content, contact, status, reply, replied_at, created_at
+              FROM pcc_feedbacks
+             WHERE user_id = %s
+             ORDER BY created_at DESC
+             LIMIT 20
+            """,
+            (user["id"],),
+        )
+        rows = cur.fetchall()
+    items = [
+        {
+            "id": r[0],
+            "content": r[1],
+            "contact": r[2] or "",
+            "status": r[3] or "open",
+            "reply": r[4] or "",
+            "replied_at": iso(r[5]),
+            "created_at": iso(r[6]),
+        }
+        for r in rows
+    ]
+    return {"ok": True, "items": items}
 
 
 @secure.post("/record/start")

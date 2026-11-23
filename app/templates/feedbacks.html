@@ -40,7 +40,18 @@
           {% if r[2] %}<div class="mono muted" style="margin-top:4px">{{ r[2] }}</div>{% endif %}
         </td>
         <td class="mono secondary">{{ r[3] or '—' }}</td>
-        <td style="max-width:420px;white-space:pre-wrap;word-break:break-word;line-height:1.6">{{ r[4] }}</td>
+        <td style="max-width:420px;white-space:pre-wrap;word-break:break-word;line-height:1.6">
+          <div>{{ r[4] }}</div>
+          {% if r[10] %}
+          <div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--raised);border:1px solid var(--hairline);font-size:12px;color:var(--fg-2)">
+            <span style="color:var(--accent);font-weight:500">官方回复</span>{% if r[11] %} <span class="mono muted">({{ iso(r[11])[:16] }})</span>{% endif %}：{{ r[10] }}
+          </div>
+          {% endif %}
+          <form method="post" action="/admin/feedbacks/{{ r[0] }}/reply" style="margin-top:8px;display:flex;gap:6px;align-items:center">
+            <input name="reply" value="{{ r[10] or '' }}" placeholder="输入官方回复，保存后自动标记为已处理" style="flex:1;min-width:180px;height:30px;font-size:12px">
+            <button type="submit" style="height:30px;padding:0 10px;font-size:12px">回复</button>
+          </form>
+        </td>
         <td class="mono muted" style="white-space:nowrap">
           <div>{{ r[5] or '—' }}</div>
           <div>{{ r[6] or '—' }}{% if r[7] %} / Android {{ r[7] }}{% endif %}</div>

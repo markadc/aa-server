@@ -123,7 +123,8 @@ class TestApiEndpoints(unittest.TestCase):
 
         kicked = self.client.request("POST", "/api/v1/record/start", headers={"X-Token": old_token})
         self.assertEqual(kicked.status_code, 401)
-        self.assertEqual(kicked.json()["error_code"], "unauthorized")
+        self.assertEqual(kicked.json()["error_code"], "kicked")
+        self.assertIn("其他设备登录", kicked.json()["error"])
 
         ok2 = self.client.request("POST", "/api/v1/record/start", headers={"X-Token": new_token})
         self.assertEqual(ok2.status_code, 200)
@@ -355,6 +356,72 @@ class TestApiEndpoints(unittest.TestCase):
         ).json()
         self.assertFalse(limited["ok"])
         self.assertEqual(limited["error_code"], "rate_limited")
+
+        # 管理员写入回复后，客户端 /api/v1/feedback/mine 可查到状态与回复
+        self.pool.db.pcc_feedbacks[0]["reply"] = "已在新配置修复，重启即可生效"
+        self.pool.db.pcc_feedbacks[0]["status"] = "resolved"
+        mine = self.client.request("GET", "/api/v1/feedback/mine", headers={"X-Token": u["token"]})
+        self.assertEqual(mine.status_code, 200)
+        items = mine.json()["items"]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["status"], "resolved")
+        self.assertEqual(items[0]["reply"], "已在新配置修复，重启即可生效")
+
+    def test_seed_config_and_failover_url(self) -> None:
+        self.pool.db.app_settings["api_base_url"] = {"key": "api_base_url", "value": "http://2.2.2.2:8800"}
+        self.pool.db.app_settings["seed_version"] = {"key": "seed_version", "value": "2"}
+        self.pool.db.app_settings["seed_patch_json"] = {
+            "key": "seed_patch_json",
+            "value": '{"test_game": "cfg_v2"}',
+        }
+        self.pool.db.app_settings["games_json"] = {
+            "key": "games_json",
+            "value": '[{"name":"新扑克","platform":"新扑克","mode":0,"aliases":"新扑克"}]',
+        }
+
+        cfg = self.client.request("GET", "/api/v1/app/config").json()
+        self.assertTrue(cfg["ok"])
+        self.assertEqual(cfg["api_base_url"], "http://2.2.2.2:8800")
+        self.assertEqual(cfg["seed_version"], "2")
+
+        seed = self.client.request("GET", "/api/v1/seed/config").json()
+        self.assertTrue(seed["ok"])
+        self.assertEqual(seed["seed_version"], "2")
+        self.assertEqual(seed["direction_config"], {"test_game": "cfg_v2"})
+        self.assertEqual(len(seed["games"]), 1)
+        self.assertEqual(seed["games"][0]["name"], "新扑克")
+
+    def test_crash_report_and_rate_limit(self) -> None:
+        r1 = self.client.request(
+            "POST",
+            "/api/v1/crash",
+            json_body={
+                "install_id": "dev-crash-1",
+                "username": "user0001",
+                "app_version": "pcc_v3.4.0",
+                "model": "Pixel 8",
+                "os_version": "14",
+                "game": "欢乐斗地主（腾讯）",
+                "thread_name": "main",
+                "message": "NullPointerException: test",
+                "stacktrace": "java.lang.NullPointerException: test\n\tat com.pcc.Demo.run(Demo.java:10)",
+            },
+            client_ip="10.0.8.1",
+        )
+        self.assertEqual(r1.status_code, 200)
+        self.assertTrue(r1.json()["ok"])
+        self.assertEqual(len(self.pool.db.pcc_crash_logs), 1)
+        self.assertEqual(self.pool.db.pcc_crash_logs[0]["game"], "欢乐斗地主（腾讯）")
+
+        # 10 秒内同设备重复上报 -> 限流
+        r2 = self.client.request(
+            "POST",
+            "/api/v1/crash",
+            json_body={"install_id": "dev-crash-1", "stacktrace": "again"},
+            client_ip="10.0.8.1",
+        ).json()
+        self.assertFalse(r2["ok"])
+        self.assertEqual(r2["error_code"], "rate_limited")
 
 
 if __name__ == "__main__":

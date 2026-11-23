@@ -42,13 +42,16 @@ CREATE TABLE IF NOT EXISTS pcc_users (
     last_record_at      TIMESTAMPTZ,
     revoked             BOOLEAN NOT NULL DEFAULT false,
     license_expires_at  TIMESTAMPTZ,
-    phone               TEXT NOT NULL DEFAULT ''
+    phone               TEXT NOT NULL DEFAULT '',
+    prev_token          TEXT NOT NULL DEFAULT ''
 );
 ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS license_expires_at TIMESTAMPTZ;
 ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
+ALTER TABLE pcc_users ADD COLUMN IF NOT EXISTS prev_token TEXT NOT NULL DEFAULT '';
 DROP INDEX IF EXISTS idx_pcc_users_install_uniq;
 CREATE INDEX IF NOT EXISTS idx_pcc_users_install ON pcc_users (install_id);
 CREATE INDEX IF NOT EXISTS idx_pcc_users_created ON pcc_users (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pcc_users_prev_token ON pcc_users (prev_token) WHERE prev_token <> '';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pcc_users_phone_uniq
     ON pcc_users (phone) WHERE phone <> '';
 
@@ -88,7 +91,27 @@ CREATE TABLE IF NOT EXISTS pcc_feedbacks (
     contact     TEXT NOT NULL DEFAULT '',
     content     TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'open',
+    reply       TEXT NOT NULL DEFAULT '',
+    replied_at  TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE pcc_feedbacks ADD COLUMN IF NOT EXISTS reply TEXT NOT NULL DEFAULT '';
+ALTER TABLE pcc_feedbacks ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_created ON pcc_feedbacks (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pcc_feedbacks_status  ON pcc_feedbacks (status, created_at DESC);
+
+-- 客户端崩溃日志（免登录上报，用于无感排障）
+CREATE TABLE IF NOT EXISTS pcc_crash_logs (
+    id          BIGSERIAL PRIMARY KEY,
+    install_id  TEXT NOT NULL DEFAULT '',
+    username    TEXT NOT NULL DEFAULT '',
+    app_version TEXT NOT NULL DEFAULT '',
+    model       TEXT NOT NULL DEFAULT '',
+    os_version  TEXT NOT NULL DEFAULT '',
+    game        TEXT NOT NULL DEFAULT '',
+    thread_name TEXT NOT NULL DEFAULT '',
+    message     TEXT NOT NULL DEFAULT '',
+    stacktrace  TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_pcc_crash_logs_created ON pcc_crash_logs (created_at DESC);

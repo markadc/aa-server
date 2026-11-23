@@ -21,7 +21,7 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(r.headers.get("location"), "/admin")
 
     def test_require_login_redirect(self) -> None:
-        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/feedbacks", "/admin/settings"):
+        for path in ("/admin", "/admin/keys", "/admin/users", "/admin/devices", "/admin/feedbacks", "/admin/crashes", "/admin/settings"):
             r = self.client.request("GET", path)
             self.assertEqual(r.status_code, 303, f"{path} 未登录应 303 跳转")
             self.assertEqual(r.headers.get("location"), "/admin/login")
@@ -141,10 +141,87 @@ class TestAdminPanel(unittest.TestCase):
         self.assertEqual(r2.status_code, 303)
         self.assertEqual(self.pool.db.pcc_feedbacks[0]["status"], "open")
 
+        # 管理员回复反馈（自动标为 resolved）
+        rep = self.client.request("POST", f"/admin/feedbacks/{fid}/reply", form_body={"reply": "收到，明天修"})
+        self.assertEqual(rep.status_code, 303)
+        self.assertEqual(self.pool.db.pcc_feedbacks[0]["reply"], "收到，明天修")
+        self.assertEqual(self.pool.db.pcc_feedbacks[0]["status"], "resolved")
+
         # 删除反馈
         r3 = self.client.request("POST", f"/admin/feedbacks/{fid}/delete")
         self.assertEqual(r3.status_code, 303)
         self.assertEqual(len(self.pool.db.pcc_feedbacks), 0)
+
+    def test_crashes_page_and_settings_json_validation(self) -> None:
+        self._login_admin()
+        # 写入一条崩溃日志并查看后台
+        self.client.request(
+            "POST",
+            "/api/v1/crash",
+            json_body={
+                "install_id": "dev-adm-crash",
+                "model": "Mate 60",
+                "message": "IllegalStateException",
+                "stacktrace": "trace line 1",
+            },
+            client_ip="10.0.9.9",
+        )
+        page = self.client.request("GET", "/admin/crashes?q=Mate")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("IllegalStateException", page.text)
+
+        cid = self.pool.db.pcc_crash_logs[0]["id"]
+        d1 = self.client.request("POST", f"/admin/crashes/{cid}/delete")
+        self.assertEqual(d1.status_code, 303)
+        self.assertEqual(len(self.pool.db.pcc_crash_logs), 0)
+
+        # settings JSON 非法格式拦截
+        bad = self.client.request(
+            "POST",
+            "/admin/settings",
+            form_body={
+                "kefu_qq": "123",
+                "notice": "",
+                "api_base_url": "ftp://invalid",
+                "seed_version": "2",
+                "seed_patch_json": "",
+                "games_json": "",
+            },
+        )
+        self.assertEqual(bad.status_code, 200)
+        self.assertIn("必须以 http:// 或 https:// 开头", bad.text)
+
+        bad_json = self.client.request(
+            "POST",
+            "/admin/settings",
+            form_body={
+                "kefu_qq": "123",
+                "notice": "",
+                "api_base_url": "http://1.2.3.4:8800/",
+                "seed_version": "2",
+                "seed_patch_json": "[1,2,3]",
+                "games_json": "",
+            },
+        )
+        self.assertEqual(bad_json.status_code, 200)
+        self.assertIn("必须是 JSON 对象", bad_json.text)
+
+        # 合法配置保存成功且自动去掉尾部斜杠
+        good = self.client.request(
+            "POST",
+            "/admin/settings",
+            form_body={
+                "kefu_qq": "123",
+                "notice": "新公告",
+                "api_base_url": "http://1.2.3.4:8800/",
+                "seed_version": "3",
+                "seed_patch_json": '{"k":"v"}',
+                "games_json": '[{"name":"测试","platform":"测试","mode":0}]',
+            },
+        )
+        self.assertEqual(good.status_code, 303)
+        self.assertEqual(self.pool.db.app_settings["api_base_url"]["value"], "http://1.2.3.4:8800")
+        self.assertEqual(self.pool.db.app_settings["seed_version"]["value"], "3")
 
 
 if __name__ == "__main__":

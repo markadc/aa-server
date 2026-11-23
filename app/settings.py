@@ -1,17 +1,33 @@
-"""动态应用配置（公告 / 客服 QQ）。
+"""动态应用配置（公告 / 客服 QQ / 灾备地址 / 云端识别配置热更新）。
 
-数据库 app_settings 表优先；若某键尚未在后台保存过，则回落 config.toml 的 [app]。
+数据库 app_settings 表优先；若某键尚未在后台保存过，则回落默认值或 config.toml 的 [app]。
 """
 from __future__ import annotations
 
 from psycopg_pool import ConnectionPool
 
-MANAGED_KEYS = ("kefu_qq", "notice")
+MANAGED_KEYS = (
+    "kefu_qq",
+    "notice",
+    "api_base_url",
+    "seed_version",
+    "seed_patch_json",
+    "games_json",
+)
+
+DEFAULTS = {
+    "kefu_qq": "",
+    "notice": "",
+    "api_base_url": "",
+    "seed_version": "1",
+    "seed_patch_json": "",
+    "games_json": "",
+}
 
 
 def get_app_settings(pool: ConnectionPool, cfg: dict) -> dict[str, str]:
     app_cfg = cfg.get("app", {})
-    result = {k: str(app_cfg.get(k, "") or "") for k in MANAGED_KEYS}
+    result = {k: str(app_cfg.get(k, DEFAULTS.get(k, "")) or DEFAULTS.get(k, "")) for k in MANAGED_KEYS}
     with pool.connection() as c:
         cur = c.execute(
             "SELECT key, value FROM app_settings WHERE key = ANY(%s)",
@@ -19,7 +35,7 @@ def get_app_settings(pool: ConnectionPool, cfg: dict) -> dict[str, str]:
         )
         for key, value in cur.fetchall():
             if key in result:
-                result[key] = value or ""
+                result[key] = value or DEFAULTS.get(key, "")
     return result
 
 

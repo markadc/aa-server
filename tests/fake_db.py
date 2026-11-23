@@ -47,10 +47,12 @@ class FakeDB:
         self.activations: list[dict[str, Any]] = []
         self.app_settings: dict[str, dict[str, Any]] = {}
         self.pcc_feedbacks: list[dict[str, Any]] = []
+        self.pcc_crash_logs: list[dict[str, Any]] = []
         self._seq_key = 1
         self._seq_user = 1
         self._seq_act = 1
         self._seq_fb = 1
+        self._seq_crash = 1
 
     def add_key(self, code: str, days: int, note: str = "", revoked: bool = False) -> int:
         kid = self._seq_key
@@ -185,6 +187,13 @@ class FakeConnection:
                     )
             return FakeCursor([])
 
+        if norm.startswith("SELECT id, revoked FROM pcc_users WHERE prev_token = %s"):
+            tok = params[0]
+            for u in self.db.pcc_users:
+                if u.get("prev_token") == tok:
+                    return FakeCursor([(u["id"], u["revoked"])])
+            return FakeCursor([])
+
         if norm.startswith("INSERT INTO pcc_users (username, password, token, install_id)"):
             username, password, token, install_id = params
             if any(u["username"] == username for u in self.db.pcc_users):
@@ -198,6 +207,7 @@ class FakeConnection:
                     "username": username,
                     "password": password,
                     "token": token,
+                    "prev_token": "",
                     "install_id": install_id,
                     "created_at": now,
                     "last_login_at": now,
@@ -218,10 +228,11 @@ class FakeConnection:
             u = matched[0]
             return FakeCursor([(u["id"], u["username"], u["password"], u["license_expires_at"], u["phone"])])
 
-        if norm == "UPDATE pcc_users SET token = %s, last_login_at = now() WHERE id = %s RETURNING token":
+        if norm == "UPDATE pcc_users SET prev_token = token, token = %s, last_login_at = now() WHERE id = %s RETURNING token":
             tok, uid = params
             for u in self.db.pcc_users:
                 if u["id"] == uid:
+                    u["prev_token"] = u["token"]
                     u["token"] = tok
                     u["last_login_at"] = _now()
                     return FakeCursor([(tok,)])
@@ -234,10 +245,11 @@ class FakeConnection:
                     return FakeCursor([(u["id"], u["revoked"], u["password"], u["license_expires_at"], u["phone"])])
             return FakeCursor([])
 
-        if norm == "UPDATE pcc_users SET token = %s, install_id = %s, last_login_at = now() WHERE id = %s RETURNING token":
+        if norm == "UPDATE pcc_users SET prev_token = token, token = %s, install_id = %s, last_login_at = now() WHERE id = %s RETURNING token":
             tok, iid, uid = params
             for u in self.db.pcc_users:
                 if u["id"] == uid:
+                    u["prev_token"] = u["token"]
                     u["token"] = tok
                     u["install_id"] = iid
                     u["last_login_at"] = _now()
@@ -457,10 +469,40 @@ class FakeConnection:
                     "contact": contact,
                     "content": content,
                     "status": "open",
+                    "reply": "",
+                    "replied_at": None,
                     "created_at": now,
                 }
             )
             return FakeCursor([(fid, now)])
+
+        if norm == "SELECT id, content, contact, status, reply, replied_at, created_at FROM pcc_feedbacks WHERE user_id = %s ORDER BY created_at DESC LIMIT 20":
+            uid = params[0]
+            rows = [fb for fb in self.db.pcc_feedbacks if fb["user_id"] == uid]
+            rows.sort(key=lambda r: r["created_at"], reverse=True)
+            return FakeCursor(
+                [
+                    (r["id"], r["content"], r["contact"], r["status"], r["reply"], r["replied_at"], r["created_at"])
+                    for r in rows[:20]
+                ]
+            )
+
+        if norm == "UPDATE pcc_feedbacks SET reply = %s, replied_at = now(), status = 'resolved' WHERE id = %s":
+            rep, fid = params
+            for fb in self.db.pcc_feedbacks:
+                if fb["id"] == fid:
+                    fb["reply"] = rep
+                    fb["replied_at"] = _now()
+                    fb["status"] = "resolved"
+            return FakeCursor()
+
+        if norm == "UPDATE pcc_feedbacks SET reply = '', replied_at = NULL WHERE id = %s":
+            fid = params[0]
+            for fb in self.db.pcc_feedbacks:
+                if fb["id"] == fid:
+                    fb["reply"] = ""
+                    fb["replied_at"] = None
+            return FakeCursor()
 
         if norm == "UPDATE pcc_feedbacks SET status = %s WHERE id = %s":
             st, fid = params
@@ -482,7 +524,7 @@ class FakeConnection:
             rows = self._filter_feedbacks(norm, params)
             return FakeCursor([(len(rows),)])
 
-        if norm.startswith("SELECT id, username, phone, contact, content, app_version, model, os_version, status, created_at FROM pcc_feedbacks"):
+        if norm.startswith("SELECT id, username, phone, contact, content, app_version, model, os_version, status, created_at, reply, replied_at FROM pcc_feedbacks"):
             q_params = params[:-2]
             limit, offset = params[-2], params[-1]
             rows = self._filter_feedbacks(norm, q_params)
@@ -501,10 +543,77 @@ class FakeConnection:
                         r["os_version"],
                         r["status"],
                         r["created_at"],
+                        r.get("reply", ""),
+                        r.get("replied_at"),
                     )
                     for r in sliced
                 ]
             )
+
+        # ---- pcc_crash_logs ----
+        if norm.startswith("INSERT INTO pcc_crash_logs"):
+            iid, uname, app_ver, model, os_ver, game, thread_name, msg, stack = params
+            cid = self.db._seq_crash
+            self.db._seq_crash += 1
+            now = _now()
+            self.db.pcc_crash_logs.append(
+                {
+                    "id": cid,
+                    "install_id": iid,
+                    "username": uname,
+                    "app_version": app_ver,
+                    "model": model,
+                    "os_version": os_ver,
+                    "game": game,
+                    "thread_name": thread_name,
+                    "message": msg,
+                    "stacktrace": stack,
+                    "created_at": now,
+                }
+            )
+            return FakeCursor([(cid, now)])
+
+        if norm.startswith("SELECT count(*) FROM pcc_crash_logs"):
+            rows = self._filter_crashes(params) if " WHERE " in norm else self.db.pcc_crash_logs
+            return FakeCursor([(len(rows),)])
+
+        if norm.startswith("SELECT id, install_id, username, app_version, model, os_version, game, thread_name, message, stacktrace, created_at FROM pcc_crash_logs"):
+            has_where = " WHERE " in norm
+            if has_where:
+                rows = self._filter_crashes(params[:6])
+                limit, offset = params[6], params[7]
+            else:
+                rows = list(self.db.pcc_crash_logs)
+                limit, offset = params[0], params[1]
+            rows.sort(key=lambda r: r["created_at"], reverse=True)
+            sliced = rows[offset : offset + limit]
+            return FakeCursor(
+                [
+                    (
+                        r["id"],
+                        r["install_id"],
+                        r["username"],
+                        r["app_version"],
+                        r["model"],
+                        r["os_version"],
+                        r["game"],
+                        r["thread_name"],
+                        r["message"],
+                        r["stacktrace"],
+                        r["created_at"],
+                    )
+                    for r in sliced
+                ]
+            )
+
+        if norm == "DELETE FROM pcc_crash_logs WHERE id = %s":
+            cid = params[0]
+            self.db.pcc_crash_logs = [r for r in self.db.pcc_crash_logs if r["id"] != cid]
+            return FakeCursor()
+
+        if norm == "DELETE FROM pcc_crash_logs":
+            self.db.pcc_crash_logs.clear()
+            return FakeCursor()
 
         raise AssertionError(f"FakeConnection 未处理的 SQL: {norm} | params={params}")
 
@@ -570,6 +679,19 @@ class FakeConnection:
             st = params[idx]
             rows = [r for r in rows if r["status"] == st]
         return rows
+
+    def _filter_crashes(self, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        pat = params[0]
+        return [
+            r
+            for r in self.db.pcc_crash_logs
+            if self._like_match(r["username"], pat)
+            or self._like_match(r["model"], pat)
+            or self._like_match(r["app_version"], pat)
+            or self._like_match(r["game"], pat)
+            or self._like_match(r["message"], pat)
+            or self._like_match(r["stacktrace"], pat)
+        ]
 
 
 class FakePool:

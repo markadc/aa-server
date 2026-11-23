@@ -1,6 +1,7 @@
 """管理后台：登录、概览、兑换码、设备、用户、在线配置设置。"""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request
@@ -304,6 +305,11 @@ def settings_page(request: Request):
         "settings.html",
         kefu_qq=vals["kefu_qq"],
         notice=vals["notice"],
+        api_base_url=vals["api_base_url"],
+        seed_version=vals["seed_version"],
+        seed_patch_json=vals["seed_patch_json"],
+        games_json=vals["games_json"],
+        error="",
         saved=bool(request.query_params.get("saved")),
     )
 
@@ -313,14 +319,56 @@ def settings_save(
     request: Request,
     kefu_qq: str = Form(""),
     notice: str = Form(""),
+    api_base_url: str = Form(""),
+    seed_version: str = Form("1"),
+    seed_patch_json: str = Form(""),
+    games_json: str = Form(""),
 ):
     if (r := require_login(request)) is not None:
         return r
+    clean_url = api_base_url.strip().rstrip("/")
+    clean_sv = seed_version.strip() or "1"
+    clean_patch = seed_patch_json.strip()
+    clean_games = games_json.strip()
+    err = ""
+    if clean_url and not (clean_url.startswith("http://") or clean_url.startswith("https://")):
+        err = "灾备服务端地址必须以 http:// 或 https:// 开头"
+    if not err and clean_patch:
+        try:
+            obj = json.loads(clean_patch)
+            if not isinstance(obj, dict):
+                err = "识别配置补丁（seed_patch_json）必须是 JSON 对象 {...}"
+        except Exception as exc:
+            err = f"识别配置补丁 JSON 格式错误：{exc}"
+    if not err and clean_games:
+        try:
+            arr = json.loads(clean_games)
+            if not isinstance(arr, list):
+                err = "扩展游戏目录（games_json）必须是 JSON 数组 [...]"
+        except Exception as exc:
+            err = f"扩展游戏目录 JSON 格式错误：{exc}"
+    if err:
+        return render(
+            request,
+            "settings.html",
+            kefu_qq=kefu_qq.strip(),
+            notice=notice.strip(),
+            api_base_url=clean_url,
+            seed_version=clean_sv,
+            seed_patch_json=clean_patch,
+            games_json=clean_games,
+            error=err,
+            saved=False,
+        )
     settings.set_app_settings(
         request.app.state.pool,
         {
             "kefu_qq": kefu_qq.strip(),
             "notice": notice.strip(),
+            "api_base_url": clean_url,
+            "seed_version": clean_sv,
+            "seed_patch_json": clean_patch,
+            "games_json": clean_games,
         },
     )
     return RedirectResponse("/admin/settings?saved=1", status_code=303)
@@ -348,7 +396,8 @@ def feedbacks_page(request: Request, page: int = 1, q: str = "", status: str = "
         (total,) = cur.fetchone()
         cur = c.execute(
             f"""
-            SELECT id, username, phone, contact, content, app_version, model, os_version, status, created_at
+            SELECT id, username, phone, contact, content, app_version, model, os_version,
+                   status, created_at, reply, replied_at
               FROM pcc_feedbacks {sql_where}
              ORDER BY created_at DESC
              LIMIT %s OFFSET %s
@@ -370,6 +419,26 @@ def feedbacks_page(request: Request, page: int = 1, q: str = "", status: str = "
     )
 
 
+@router.post("/feedbacks/{feedback_id}/reply")
+def feedbacks_reply(request: Request, feedback_id: int, reply: str = Form("")):
+    if (r := require_login(request)) is not None:
+        return r
+    clean_reply = reply.strip()[:1000]
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        if clean_reply:
+            c.execute(
+                "UPDATE pcc_feedbacks SET reply = %s, replied_at = now(), status = 'resolved' WHERE id = %s",
+                (clean_reply, feedback_id),
+            )
+        else:
+            c.execute(
+                "UPDATE pcc_feedbacks SET reply = '', replied_at = NULL WHERE id = %s",
+                (feedback_id,),
+            )
+    return RedirectResponse("/admin/feedbacks", status_code=303)
+
+
 @router.post("/feedbacks/{feedback_id}/status")
 def feedbacks_set_status(request: Request, feedback_id: int, status: str = Form("resolved")):
     if (r := require_login(request)) is not None:
@@ -389,3 +458,64 @@ def feedbacks_delete(request: Request, feedback_id: int):
     with pool.connection() as c:
         c.execute("DELETE FROM pcc_feedbacks WHERE id = %s", (feedback_id,))
     return RedirectResponse("/admin/feedbacks", status_code=303)
+
+
+@router.get("/crashes", response_class=HTMLResponse)
+def crashes_page(request: Request, page: int = 1, q: str = ""):
+    if (r := require_login(request)) is not None:
+        return r
+    page = max(1, page)
+    where, args = [], []
+    if q.strip():
+        where.append(
+            "(username ILIKE %s OR model ILIKE %s OR app_version ILIKE %s OR game ILIKE %s OR message ILIKE %s OR stacktrace ILIKE %s)"
+        )
+        like = f"%{q.strip()}%"
+        args += [like, like, like, like, like, like]
+    sql_where = ("WHERE " + " AND ".join(where)) if where else ""
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(f"SELECT count(*) FROM pcc_crash_logs {sql_where}", args)
+        (total,) = cur.fetchone()
+        cur = c.execute(
+            f"""
+            SELECT id, install_id, username, app_version, model, os_version, game,
+                   thread_name, message, stacktrace, created_at
+              FROM pcc_crash_logs {sql_where}
+             ORDER BY created_at DESC
+             LIMIT %s OFFSET %s
+            """,
+            args + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
+        )
+        rows = cur.fetchall()
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    return render(
+        request,
+        "crashes.html",
+        rows=rows,
+        page=page,
+        pages=pages,
+        total=total,
+        q=q,
+        iso=iso,
+    )
+
+
+@router.post("/crashes/{crash_id}/delete")
+def crashes_delete(request: Request, crash_id: int):
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("DELETE FROM pcc_crash_logs WHERE id = %s", (crash_id,))
+    return RedirectResponse("/admin/crashes", status_code=303)
+
+
+@router.post("/crashes/clear")
+def crashes_clear(request: Request):
+    if (r := require_login(request)) is not None:
+        return r
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        c.execute("DELETE FROM pcc_crash_logs")
+    return RedirectResponse("/admin/crashes", status_code=303)

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}崩溃日志 · pcc 控制台{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>崩溃日志</h1>
+    <p class="page-sub">共 {{ total }} 条，客户端发生未捕获异常后下次启动静默上报</p>
+  </div>
+  {% if total > 0 %}
+  <form method="post" action="/admin/crashes/clear">
+    <button class="ghost danger" type="submit" data-confirm="将清空全部崩溃日志记录，操作不可恢复" data-confirm-title="清空崩溃日志" data-confirm-ok="确认清空" data-confirm-danger="1">清空全部</button>
+  </form>
+  {% endif %}
+</div>
+
+<form class="toolbar" method="get" action="/admin/crashes">
+  <input name="q" value="{{ q }}" placeholder="搜索账号、机型、版本、游戏或报错信息" style="width:320px">
+  <button type="submit">搜索</button>
+</form>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>上报时间</th>
+        <th>版本 / 机型</th>
+        <th>账号 / 游戏</th>
+        <th>异常摘要与堆栈</th>
+        <th class="actions-col">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono secondary" style="white-space:nowrap">{{ iso(r[10])[:19] if r[10] else '—' }}</td>
+        <td class="mono muted" style="white-space:nowrap">
+          <div>{{ r[3] or '—' }}</div>
+          <div>{{ r[4] or '—' }}{% if r[5] %} / Android {{ r[5] }}{% endif %}</div>
+        </td>
+        <td style="white-space:nowrap">
+          <div class="mono secondary">{{ r[2] or '未登录' }}</div>
+          <div class="muted" style="font-size:12px">{{ r[6] or '—' }}{% if r[7] %} · {{ r[7] }}{% endif %}</div>
+        </td>
+        <td style="max-width:520px;word-break:break-word">
+          <div style="font-weight:500;color:var(--danger);margin-bottom:4px">{{ r[8] or '(无异常摘要)' }}</div>
+          <details>
+            <summary style="cursor:pointer;font-size:12px;color:var(--fg-2)">展开堆栈（{{ r[9]|length }} 字符）</summary>
+            <pre class="mono" style="margin:8px 0 0;padding:10px;border-radius:8px;background:var(--raised);border:1px solid var(--hairline);font-size:11px;line-height:1.45;max-height:260px;overflow:auto;white-space:pre-wrap">{{ r[9] }}</pre>
+          </details>
+        </td>
+        <td class="actions-col">
+          <form method="post" action="/admin/crashes/{{ r[0] }}/delete">
+            <button class="ghost danger" type="submit" data-confirm="删除该条崩溃日志？" data-confirm-title="删除日志" data-confirm-ok="删除" data-confirm-danger="1">删除</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">暂无崩溃日志</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  <span>共 {{ total }} 条 · 第 {{ page }} / {{ pages }} 页</span>
+  <div class="pager-links">
+    {% if page > 1 %}<a href="/admin/crashes?page={{ page - 1 }}&q={{ q }}">上一页</a>{% endif %}
+    {% if page < pages %}<a href="/admin/crashes?page={{ page + 1 }}&q={{ q }}">下一页</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -11,8 +11,11 @@
 {% if saved %}
 <div class="notice">设置已保存并立即生效，无需重启服务</div>
 {% endif %}
+{% if error %}
+<div class="notice" style="border-color:var(--danger);color:var(--danger);background:var(--danger-soft)">{{ error }}</div>
+{% endif %}
 
-<div class="panel" style="max-width:640px">
+<div class="panel" style="max-width:720px">
   <form method="post" action="/admin/settings">
     <div class="field">
       <label for="kefu_qq">客服 QQ</label>
@@ -21,8 +24,28 @@
     </div>
     <div class="field">
       <label for="notice">公告内容</label>
-      <textarea id="notice" name="notice" rows="5" placeholder="输入公告内容，留空显示「暂无公告」">{{ notice }}</textarea>
-      <div class="field-hint">展示在客户端「我的」页顶部公告卡片</div>
+      <textarea id="notice" name="notice" rows="4" placeholder="输入公告内容，留空显示「暂无公告」">{{ notice }}</textarea>
+      <div class="field-hint">展示在客户端「我的」页顶部公告卡片；内容变更时客户端「我的」Tab 自动亮起小红点</div>
+    </div>
+    <div class="field">
+      <label for="api_base_url">灾备服务端地址（可选）</label>
+      <input id="api_base_url" name="api_base_url" value="{{ api_base_url }}" placeholder="平时留空；迁服前填新地址如 http://x.x.x.x:8800" style="width:100%;max-width:480px">
+      <div class="field-hint">客户端收到非空地址会自动持久化切换；若新地址连续不可达会自动回落内置默认地址</div>
+    </div>
+    <div class="field">
+      <label for="seed_version">云端识别配置版本号（seed_version）</label>
+      <input id="seed_version" name="seed_version" value="{{ seed_version }}" placeholder="默认 1，每次修改下方热更新 JSON 请递增如 2、3" style="width:100%;max-width:240px">
+      <div class="field-hint">客户端对比版本号，有变化时自动拉取 /api/v1/seed/config 热更新本地配置</div>
+    </div>
+    <div class="field">
+      <label for="seed_patch_json">识别配置补丁 JSON（direction_config 覆盖项，可选）</label>
+      <textarea id="seed_patch_json" name="seed_patch_json" rows="5" class="mono" placeholder='留空不覆盖；示例：{"game_key": "..."}'>{{ seed_patch_json }}</textarea>
+      <div class="field-hint">JSON 对象，键值对会增量合并到客户端 direction_config SharedPreferences 中</div>
+    </div>
+    <div class="field">
+      <label for="games_json">云端扩展游戏目录 JSON（可选）</label>
+      <textarea id="games_json" name="games_json" rows="5" class="mono" placeholder='留空仅用内置目录；示例：[{"name":"某扑克","platform":"某扑克","mode":0,"aliases":"关键词"}]'>{{ games_json }}</textarea>
+      <div class="field-hint">JSON 数组，mode: 0=斗地主 / 1=跑得快 / 3=掼蛋 / 4=自定义 / -1=多玩法平台</div>
     </div>
     <button class="primary" type="submit">保存设置</button>
   </form>

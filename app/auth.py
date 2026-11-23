@@ -23,6 +23,9 @@ LOGIN_FAIL_MAX = 30
 FEEDBACK_INTERVAL_SECONDS = 60
 FEEDBACK_USER_HOURLY_MAX = 10
 FEEDBACK_IP_HOURLY_MAX = 20
+CRASH_INTERVAL_SECONDS = 10
+CRASH_DEV_HOURLY_MAX = 20
+CRASH_IP_HOURLY_MAX = 60
 
 _lock = threading.Lock()
 _last_success: dict[str, float] = {}  # key -> 上次成功注册时间
@@ -126,6 +129,26 @@ def mark_feedback(user_id: int, ip: str = "") -> None:
         _mark(f"fb_ip:{ip}")
 
 
+def check_crash_rate_limit(install_id: str, ip: str = "") -> str | None:
+    """崩溃上报防刷限流：同设备 10 秒 1 次且每小时 20 次；同 IP 每小时 60 次。"""
+    key = install_id or ip or "anon"
+    reason = _check(f"cr_d:{key}", CRASH_INTERVAL_SECONDS, CRASH_DEV_HOURLY_MAX)
+    if reason is not None:
+        return "上报过于频繁"
+    if ip:
+        ip_reason = _check(f"cr_ip:{ip}", 0, CRASH_IP_HOURLY_MAX)
+        if ip_reason is not None:
+            return "上报过于频繁"
+    return None
+
+
+def mark_crash(install_id: str, ip: str = "") -> None:
+    key = install_id or ip or "anon"
+    _mark(f"cr_d:{key}")
+    if ip:
+        _mark(f"cr_ip:{ip}")
+
+
 def reset_rate_limit(install_id: str | None = None) -> None:
     """给自检/测试用，正常流程不用。"""
     with _lock:
@@ -157,8 +180,25 @@ def find_by_token(request: Request, token: str):
         return cur.fetchone()
 
 
+def find_kicked_by_prev_token(request: Request, token: str) -> bool:
+    """检查该 token 是否为某正常账号刚被顶掉的旧 token。"""
+    pool = request.app.state.pool
+    with pool.connection() as c:
+        cur = c.execute(
+            """
+            SELECT id, revoked
+              FROM pcc_users
+             WHERE prev_token = %s
+             LIMIT 1
+            """,
+            (token,),
+        )
+        row = cur.fetchone()
+        return row is not None and not row[1]
+
+
 def require_user(request: Request) -> dict:
-    """FastAPI 依赖：校验 X-Token，未登录或失效直接 401。"""
+    """FastAPI 依赖：校验 X-Token，未登录、被顶号或失效直接 401。"""
     token = (request.headers.get("x-token") or "").strip()
     if not token:
         raise HTTPException(
@@ -166,10 +206,24 @@ def require_user(request: Request) -> dict:
             detail={"ok": False, "error": "未登录", "error_code": "unauthorized"},
         )
     row = find_by_token(request, token)
-    if row is None or row[3]:
+    if row is None:
+        if find_kicked_by_prev_token(request, token):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "ok": False,
+                    "error": "账号已在其他设备登录，请重新登录",
+                    "error_code": "kicked",
+                },
+            )
         raise HTTPException(
             status_code=401,
             detail={"ok": False, "error": "登录已失效，请重新登录", "error_code": "unauthorized"},
+        )
+    if row[3]:
+        raise HTTPException(
+            status_code=401,
+            detail={"ok": False, "error": "账号已被禁用，请联系客服", "error_code": "revoked"},
         )
     user_id, username, install_id, _revoked, license_expires_at, phone = row
     return {
