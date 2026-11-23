@@ -394,7 +394,7 @@ def settings_games_add(request: Request, name: str = Form("")):
             "hidden_games_json": _encode_name_array(hidden),
         },
     )
-    return RedirectResponse("/admin/settings?saved=games", status_code=303)
+    return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
 @router.post("/settings/games/delete")
@@ -403,7 +403,7 @@ def settings_games_delete(request: Request, name: str = Form("")):
         return r
     clean = name.strip()
     if not clean:
-        return RedirectResponse("/admin/settings", status_code=303)
+        return RedirectResponse("/admin/settings#game-catalog", status_code=303)
     pool = request.app.state.pool
     vals = settings.get_app_settings(pool, request.app.state.config)
     added = _parse_name_list(vals.get("games_json", ""))
@@ -419,7 +419,7 @@ def settings_games_delete(request: Request, name: str = Form("")):
             "hidden_games_json": _encode_name_array(hidden),
         },
     )
-    return RedirectResponse("/admin/settings?saved=games", status_code=303)
+    return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
 @router.post("/settings/games/restore")
@@ -431,7 +431,7 @@ def settings_games_restore(request: Request, name: str = Form("")):
     vals = settings.get_app_settings(pool, request.app.state.config)
     hidden = [x for x in _parse_name_list(vals.get("hidden_games_json", "")) if x != clean]
     settings.set_app_settings(pool, {"hidden_games_json": _encode_name_array(hidden)})
-    return RedirectResponse("/admin/settings?saved=games", status_code=303)
+    return RedirectResponse("/admin/settings?saved=games#game-catalog", status_code=303)
 
 
 @router.post("/settings/games/reset")
@@ -440,7 +440,7 @@ def settings_games_reset(request: Request):
         return r
     pool = request.app.state.pool
     settings.set_app_settings(pool, {"games_json": "", "hidden_games_json": ""})
-    return RedirectResponse("/admin/settings?saved=games_reset", status_code=303)
+    return RedirectResponse("/admin/settings?saved=games_reset#game-catalog", status_code=303)
 
 
 @router.post("/settings")

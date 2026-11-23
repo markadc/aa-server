@@ -8,11 +8,9 @@
   </div>
 </div>
 
-{% if saved_section %}
+{% if saved_section and saved_section not in ('games', 'games_reset') %}
 <div class="notice">
   {% if saved_section == 'basic' %}日常运营设置已保存并立即生效
-  {% elif saved_section == 'games' %}游戏目录已更新，用户在 App「选择游戏」里点「刷新」即可同步
-  {% elif saved_section == 'games_reset' %}已还原为出厂默认游戏目录
   {% elif saved_section == 'patch' %}识别配置补丁已保存并立即生效
   {% elif saved_section == 'failover' %}灾备服务端地址已保存并立即生效
   {% else %}设置已保存并立即生效{% endif %}
@@ -51,7 +49,7 @@
   </div>
 
   <!-- 卡片 2：搜索框游戏目录（可视化增删 + 还原默认） -->
-  <div class="panel">
+  <div class="panel" id="game-catalog" data-preserve-scroll>
     <div class="section-head">
       <div>
         <h2 class="section-title">搜索框游戏目录</h2>
@@ -66,8 +64,14 @@
       {% endif %}
     </div>
 
-    <form class="game-add-bar" method="post" action="/admin/settings/games/add">
-      <input name="name" placeholder="输入要添加的游戏名称，例如：微乐够级" maxlength="32" required>
+    {% if saved_section == 'games' %}
+    <div class="notice" style="margin-bottom:14px">游戏目录已更新，用户在 App「选择游戏」里点「刷新」即可同步</div>
+    {% elif saved_section == 'games_reset' %}
+    <div class="notice" style="margin-bottom:14px">已还原为出厂默认游戏目录</div>
+    {% endif %}
+
+    <form class="game-add-bar" method="post" action="/admin/settings/games/add" data-game-add-form>
+      <input id="game-add-input" name="name" placeholder="输入要添加的游戏名称，例如：微乐够级" maxlength="32" required>
       <button class="primary" type="submit">添加游戏</button>
     </form>
 
@@ -164,6 +168,37 @@
 
 <script>
 (function () {
+  // 操作「搜索框游戏目录」后原地保持滚动位置，不跳回页面顶部
+  var KEY_SCROLL = 'pcc_settings_scroll_y';
+  var KEY_FOCUS_ADD = 'pcc_settings_focus_add';
+  try {
+    var savedY = sessionStorage.getItem(KEY_SCROLL);
+    if (savedY !== null) {
+      sessionStorage.removeItem(KEY_SCROLL);
+      var y = parseInt(savedY, 10);
+      if (!isNaN(y)) {
+        window.scrollTo({ top: y, behavior: 'instant' });
+      }
+    }
+    if (sessionStorage.getItem(KEY_FOCUS_ADD) === '1') {
+      sessionStorage.removeItem(KEY_FOCUS_ADD);
+      var addInp = document.getElementById('game-add-input');
+      if (addInp) addInp.focus({ preventScroll: true });
+    }
+  } catch (e) {}
+
+  var gameCard = document.getElementById('game-catalog');
+  if (gameCard) {
+    gameCard.addEventListener('submit', function (e) {
+      try {
+        sessionStorage.setItem(KEY_SCROLL, String(window.scrollY || document.documentElement.scrollTop || 0));
+        if (e.target && e.target.hasAttribute('data-game-add-form')) {
+          sessionStorage.setItem(KEY_FOCUS_ADD, '1');
+        }
+      } catch (err) {}
+    });
+  }
+
   var fmtBtn = document.getElementById('btn-format-patch');
   var patchTa = document.getElementById('seed_patch_json');
   var patchSt = document.getElementById('patch-status');
