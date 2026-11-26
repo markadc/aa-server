@@ -39,7 +39,7 @@
     <option value="{{ g }}" {{ 'selected' if game == g else '' }}>{{ g }}</option>
     {% endfor %}
   </select>
-  <button type="submit">筛选</button>
+  <button class="primary" type="submit">筛选</button>
   {% if q or game %}<a class="btn" href="/admin/usage">重置</a>{% endif %}
 </form>
 

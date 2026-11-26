@@ -10,7 +10,7 @@
 
 <form class="toolbar" method="get" action="/admin/users">
   <input name="q" value="{{ q }}" placeholder="搜索账号、备注、手机号、android_id 或机型" style="width:320px">
-  <button type="submit">筛选</button>
+  <button class="primary" type="submit">筛选</button>
   {% if q %}<a class="btn" href="/admin/users">重置</a>{% endif %}
 </form>
 
